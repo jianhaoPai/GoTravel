@@ -9,7 +9,7 @@ window.TRAVEL_APP_CONFIG = {
   // 高德地图 JS API Key（在 https://console.amap.com/dev/key/app 获取）
   amapKey: 'AMAP_KEY_PLACEHOLDER',
 
-  // 高德安全密钥（可选，建议配合 amapKey 一起使用）
+  // 高德安全密钥（新版 Web JS API 通常必填，搜索地点依赖它）
   amapSecurityJsCode: 'AMAP_SECURITY_CODE_PLACEHOLDER',
 
   // 登录时用 "<用户名>@<此域名>" 作为邮箱

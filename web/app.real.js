@@ -747,11 +747,19 @@ function renderMapSearchResults(results = []) {
   }
 
   results.forEach((place) => {
-    const button = document.createElement('button');
-    button.className = 'place-result';
-    button.type = 'button';
-    button.innerHTML = `<strong>${place.name}</strong><span>${place.address || '暂无详细地址'}</span>`;
-    button.addEventListener('click', async () => {
+    const item = document.createElement('article');
+    item.className = 'place-result result-with-action';
+    item.innerHTML = `
+      <button class="result-main" type="button">
+        <strong>${place.name}</strong>
+        <span>${place.address || '暂无详细地址'}</span>
+      </button>
+      <button class="small-primary result-add" type="button">添加</button>
+    `;
+    item.querySelector('.result-main').addEventListener('click', () => {
+      if (app.map) app.map.setZoomAndCenter(16, [place.lng, place.lat]);
+    });
+    item.querySelector('.result-add').addEventListener('click', async () => {
       const saved = await persistPlace({
         ...place,
         category: '景点',
@@ -763,7 +771,7 @@ function renderMapSearchResults(results = []) {
         root.innerHTML = '';
       }
     });
-    root.appendChild(button);
+    root.appendChild(item);
   });
 }
 
@@ -829,6 +837,38 @@ async function persistPlace(place) {
     app.map.setZoomAndCenter(15, [place.lng, place.lat]);
   }
   return true;
+}
+
+async function deletePlace(placeId) {
+  if (!requireAuth() || !requireTrip()) return;
+  const place = app.state.places.find((item) => item.id === placeId);
+  if (!place) return;
+  if (!confirm(`删除「${place.name}」？相关想去和评论也会一起删除。`)) return;
+
+  app.state.routePlaceIds = app.state.routePlaceIds.filter((id) => id !== placeId);
+
+  if (app.mode !== 'supabase') {
+    app.state.places = app.state.places.filter((item) => item.id !== placeId);
+    app.state.wants = app.state.wants.filter((want) => want.placeId !== placeId);
+    app.state.comments = app.state.comments.filter((comment) => comment.placeId !== placeId);
+    saveLocal();
+  } else {
+    const { error } = await app.supabase
+      .from('places')
+      .delete()
+      .eq('id', placeId)
+      .eq('created_by', currentUserId());
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    await persistRoute();
+    await loadState();
+  }
+
+  render();
 }
 
 async function savePlace() {
@@ -1159,8 +1199,15 @@ function renderPlaces() {
     const member = memberById(place.createdBy);
     const card = document.createElement('article');
     card.className = 'place-card';
+    const canDelete = app.mode === 'demo' || place.createdBy === currentUserId();
     card.innerHTML = `
-      <button type="button">
+      <div class="place-card-actions">
+        <button class="place-open" type="button">
+          查看详情
+        </button>
+        ${canDelete ? '<button class="place-delete" type="button">删除</button>' : ''}
+      </div>
+      <button class="place-main" type="button">
         <div class="place-title-row">
           <div>
             <span class="place-name">${place.name}</span>
@@ -1176,7 +1223,10 @@ function renderPlaces() {
         <p class="place-note">${place.note || '暂无备注'}</p>
       </button>
     `;
-    card.querySelector('button').addEventListener('click', () => openDetail(place.id));
+    card.querySelector('.place-main').addEventListener('click', () => openDetail(place.id));
+    card.querySelector('.place-open').addEventListener('click', () => openDetail(place.id));
+    const deleteButton = card.querySelector('.place-delete');
+    if (deleteButton) deleteButton.addEventListener('click', () => deletePlace(place.id));
     root.appendChild(card);
   });
 }
