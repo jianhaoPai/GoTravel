@@ -775,6 +775,41 @@ function renderMapSearchResults(results = []) {
   });
 }
 
+function clearSearchResults(rootId, message, hide = false) {
+  const root = $(rootId);
+  root.hidden = hide;
+  root.innerHTML = message ? `<div class="empty compact">${message}</div>` : '';
+}
+
+function bindLivePlaceSuggest(inputId, rootId, renderResults, options = {}) {
+  let timer = null;
+  $(inputId).addEventListener('input', () => {
+    window.clearTimeout(timer);
+    const keyword = $(inputId).value.trim();
+
+    if (!keyword) {
+      clearSearchResults(rootId, options.emptyMessage || '', Boolean(options.hideWhenEmpty));
+      return;
+    }
+
+    if (keyword.length < 2) {
+      clearSearchResults(rootId, '继续输入以显示推荐地点', false);
+      return;
+    }
+
+    timer = window.setTimeout(async () => {
+      if (!requireTrip()) return;
+      $(rootId).hidden = false;
+      const result = await runPlaceSearch(keyword, $(rootId));
+      if (!result.ok) {
+        $(rootId).innerHTML = `<div class="empty compact">搜索失败：${amapSearchErrorMessage(result.message)}</div>`;
+        return;
+      }
+      renderResults(result.places);
+    }, 350);
+  });
+}
+
 async function searchMapPlace() {
   if (!requireAuth() || !requireTrip()) return;
   const keyword = $('mapSearchInput').value.trim();
@@ -1261,6 +1296,7 @@ function renderRoute() {
         <div class="sort-buttons">
           <button type="button" data-action="up">↑</button>
           <button type="button" data-action="down">↓</button>
+          <button type="button" data-action="remove">删除</button>
         </div>
       </div>
     `;
@@ -1272,6 +1308,7 @@ function renderRoute() {
     });
     item.querySelector('[data-action="up"]').addEventListener('click', () => moveRouteItem(index, index - 1));
     item.querySelector('[data-action="down"]').addEventListener('click', () => moveRouteItem(index, index + 1));
+    item.querySelector('[data-action="remove"]').addEventListener('click', () => removeRouteItem(index));
     root.appendChild(item);
   });
 }
@@ -1293,6 +1330,13 @@ async function moveRouteItem(from, to) {
   const ids = app.state.routePlaceIds;
   const [moved] = ids.splice(from, 1);
   ids.splice(to, 0, moved);
+  await persistRoute();
+  render();
+}
+
+async function removeRouteItem(index) {
+  if (index < 0 || index >= app.state.routePlaceIds.length) return;
+  app.state.routePlaceIds.splice(index, 1);
   await persistRoute();
   render();
 }
@@ -1365,11 +1409,17 @@ function bindEvents() {
     event.preventDefault();
     searchPlace();
   });
+  bindLivePlaceSuggest('placeSearchInput', 'placeSearchResults', renderPlaceSearchResults, {
+    emptyMessage: '搜索并选择一个地点后再保存'
+  });
   $('mapSearchButton').addEventListener('click', searchMapPlace);
   $('mapSearchInput').addEventListener('keydown', (event) => {
     if (event.key !== 'Enter') return;
     event.preventDefault();
     searchMapPlace();
+  });
+  bindLivePlaceSuggest('mapSearchInput', 'mapSearchResults', renderMapSearchResults, {
+    hideWhenEmpty: true
   });
   $('openAddPlace').addEventListener('click', () => {
     if (!requireAuth() || !requireTrip()) return;
