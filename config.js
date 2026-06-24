@@ -7,10 +7,10 @@ window.TRAVEL_APP_CONFIG = {
   supabaseAnonKey: 'sb_publishable_XXdzp0N4p8eSyr736GX8NQ_Gc2L0n2l',
 
   // 高德地图 JS API Key（在 https://console.amap.com/dev/key/app 获取）
-  amapKey: 'f3c38564029ee5709a91a1cea04231c3',
+  amapKey: 'dad61aba86c21ef23eab2012dc90647f',
 
   // 高德安全密钥（可选，建议配合 amapKey 一起使用）
-  amapSecurityJsCode: '',
+  amapSecurityJsCode: '22815213916e299137e555afdac46e88',
 
   // 登录时用 "<用户名>@<此域名>" 作为邮箱
   authUsernameDomain: 'test.com',
