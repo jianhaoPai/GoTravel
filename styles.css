@@ -192,6 +192,10 @@ input:disabled {
   grid-template-columns: minmax(320px, 390px) minmax(420px, 1fr) minmax(300px, 360px);
 }
 
+.mobile-drawer-tabs {
+  display: none;
+}
+
 .sidebar,
 .route-panel {
   height: 100vh;
@@ -947,27 +951,154 @@ textarea:focus {
   }
 
   .app-shell {
+    position: relative;
+    min-height: 100dvh;
     display: block;
+    overflow: hidden;
+    background: #dbeafe;
+  }
+
+  .map-workspace {
+    min-height: 100dvh;
+    height: 100dvh;
+  }
+
+  .map {
+    height: 100dvh;
+  }
+
+  .mobile-drawer-tabs {
+    position: fixed;
+    z-index: 850;
+    left: 12px;
+    right: 12px;
+    bottom: min(44dvh, 390px);
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    padding: 6px;
+    border: 1px solid rgba(217, 225, 234, 0.94);
+    border-radius: 8px 8px 0 0;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 -10px 30px rgba(15, 23, 42, 0.12);
+  }
+
+  .mobile-drawer-tabs button {
+    min-height: 36px;
+    border-radius: 7px;
+    color: #475569;
+    background: #f1f5f9;
+    font-weight: 900;
+  }
+
+  .mobile-drawer-tabs button.active {
+    color: #fff;
+    background: var(--brand);
   }
 
   .sidebar,
   .route-panel {
-    height: auto;
-    border: 0;
+    position: fixed;
+    z-index: 800;
+    left: 12px;
+    right: 12px;
+    bottom: 0;
+    height: min(44dvh, 390px);
+    padding: 14px;
+    border: 1px solid rgba(217, 225, 234, 0.94);
+    border-bottom: 0;
+    border-radius: 0;
+    background: rgba(245, 247, 248, 0.98);
+    box-shadow: 0 -18px 48px rgba(15, 23, 42, 0.16);
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
-  .map {
-    height: 62vh;
+  .mobile-places-active .route-panel,
+  .mobile-route-active .sidebar {
+    display: none;
+  }
+
+  .trip-hero {
+    min-height: 108px;
+    margin-bottom: 14px;
+    padding: 14px;
+  }
+
+  .trip-hero h1 {
+    margin-top: 6px;
+    font-size: 22px;
+  }
+
+  .auth-panel,
+  .stats-grid,
+  .sidebar section {
+    margin-bottom: 14px;
+  }
+
+  .places-panel {
+    padding-bottom: 6px;
+  }
+
+  .place-card,
+  .route-list .route-item {
+    padding: 12px;
+  }
+
+  .place-name {
+    font-size: 16px;
+  }
+
+  .place-note {
+    display: none;
+  }
+
+  .route-title-row {
+    align-items: flex-start;
+  }
+
+  .route-segment {
+    margin-left: 44px;
   }
 
   .map-overlay {
-    left: 12px;
-    right: 12px;
-    top: 12px;
+    left: 10px;
+    right: 10px;
+    top: 10px;
+    gap: 10px;
+    padding: 10px;
   }
 
-  .map-overlay-main,
-  .map-search-row,
+  .map-overlay-main {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+  }
+
+  .map-overlay strong {
+    font-size: 15px;
+  }
+
+  .map-overlay span {
+    display: none;
+  }
+
+  .map-search-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+  }
+
+  .map-search-row .small-primary,
+  #fitMap {
+    min-height: 38px;
+    padding: 0 12px;
+  }
+
+  .map-search-results {
+    max-height: 28dvh;
+  }
+
   .search-row {
     display: grid;
     grid-template-columns: 1fr;
