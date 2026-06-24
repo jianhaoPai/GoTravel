@@ -80,6 +80,7 @@ const app = {
   routeMode: 'walking',
   routeMetric: null,
   routeSearchToken: 0,
+  draggedRouteIndex: null,
   selectedPlaceId: null,
   placeDraft: null,
   placeSearch: null,
@@ -170,8 +171,14 @@ function loadAmapScript() {
 
 function loadAmapRoutePlugins() {
   if (!window.AMap) return Promise.reject(new Error('AMAP_NOT_READY'));
-  return new Promise((resolve) => {
-    AMap.plugin(['AMap.Walking', 'AMap.Driving'], resolve);
+  return new Promise((resolve, reject) => {
+    AMap.plugin(['AMap.Walking', 'AMap.Driving'], () => {
+      if (!AMap.Walking || !AMap.Driving) {
+        reject(new Error('高德路线插件加载失败'));
+        return;
+      }
+      resolve();
+    });
   });
 }
 
@@ -1248,17 +1255,22 @@ async function calculateAmapRoute(places, token) {
       key: routeKey(places),
       distanceMeters: segments.reduce((sum, item) => sum + item.distance, 0),
       durationSeconds: segments.reduce((sum, item) => sum + item.duration, 0),
+      segments: segments.map((segment) => ({
+        distanceMeters: segment.distance,
+        durationSeconds: segment.duration
+      })),
       status: 'ready'
     };
   } catch (error) {
     console.warn(error);
     app.routeMetric = {
       key: routeKey(places),
-      status: 'fallback'
+      status: 'fallback',
+      error: error.message || '高德路线计算失败'
     };
   }
 
-  if (token === app.routeSearchToken) renderRouteSummary();
+  if (token === app.routeSearchToken) renderRoute();
 }
 
 function renderRouteLine() {
@@ -1483,8 +1495,31 @@ function renderRouteSummary() {
   }
 
   const stats = routeStats(places);
+  if (metric?.status === 'fallback') {
+    $('routeSummary').textContent = `${places.length} 个地点 · ${modeName}路线失败：${metric.error} · 显示直线预估 ${stats.distance}`;
+    return;
+  }
+
   const suffix = metric?.status === 'loading' ? '计算中' : '直线预估';
   $('routeSummary').textContent = `${places.length} 个地点 · ${modeName}${suffix} · ${stats.distance} · ${stats.duration}`;
+}
+
+function routeSegmentText(places, index) {
+  if (index >= places.length - 1) return '';
+
+  const metric = app.routeMetric?.key === routeKey(places) ? app.routeMetric : null;
+  const modeName = app.routeMode === 'driving' ? '驾车' : '走路';
+  const segment = metric?.segments?.[index];
+
+  if (metric?.status === 'ready' && segment) {
+    const formatted = formatRouteMetric(segment.distanceMeters, segment.durationSeconds);
+    return `到下一站 · ${modeName} ${formatted.distance} · ${formatted.duration}`;
+  }
+
+  const distanceMeters = distanceKm(places[index], places[index + 1]) * 1000;
+  const formatted = formatRouteMetric(distanceMeters, Math.round((distanceMeters / 1000 / 18) * 3600));
+  const prefix = metric?.status === 'loading' ? '正在计算' : '直线约';
+  return `到下一站 · ${prefix} ${formatted.distance}`;
 }
 
 function renderRoute() {
@@ -1501,9 +1536,11 @@ function renderRoute() {
   places.forEach((place, index) => {
     const item = document.createElement('article');
     item.className = 'route-item';
-    item.draggable = true;
+    item.dataset.index = String(index);
+    const segmentText = routeSegmentText(places, index);
     item.innerHTML = `
       <div class="route-title-row">
+        <button class="drag-handle" type="button" draggable="true" aria-label="拖动调整顺序">⋮⋮</button>
         <span class="step">${index + 1}</span>
         <div class="route-main">
           <span class="route-name">${place.name}</span>
@@ -1517,12 +1554,59 @@ function renderRoute() {
           <button class="route-remove" type="button" data-action="remove">移除</button>
         </div>
       </div>
+      ${segmentText ? `<div class="route-segment">${segmentText}</div>` : ''}
     `;
-    item.addEventListener('dragstart', (event) => event.dataTransfer.setData('text/plain', String(index)));
-    item.addEventListener('dragover', (event) => event.preventDefault());
+    const handle = item.querySelector('.drag-handle');
+    handle.addEventListener('dragstart', (event) => {
+      app.draggedRouteIndex = index;
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', String(index));
+      item.classList.add('dragging');
+    });
+    handle.addEventListener('dragend', () => {
+      app.draggedRouteIndex = null;
+      root.querySelectorAll('.route-item').forEach((node) => node.classList.remove('dragging', 'drag-over'));
+    });
+    handle.addEventListener('pointerdown', (event) => {
+      if (event.pointerType === 'mouse') return;
+      app.draggedRouteIndex = index;
+      item.classList.add('dragging');
+      handle.setPointerCapture(event.pointerId);
+    });
+    handle.addEventListener('pointermove', (event) => {
+      if (app.draggedRouteIndex === null || event.pointerType === 'mouse') return;
+      const target = document.elementFromPoint(event.clientX, event.clientY)?.closest('.route-item');
+      root.querySelectorAll('.route-item').forEach((node) => node.classList.remove('drag-over'));
+      if (target && target !== item) target.classList.add('drag-over');
+    });
+    handle.addEventListener('pointerup', (event) => {
+      if (app.draggedRouteIndex === null || event.pointerType === 'mouse') return;
+      const target = document.elementFromPoint(event.clientX, event.clientY)?.closest('.route-item');
+      const from = app.draggedRouteIndex;
+      const to = target ? Number(target.dataset.index) : from;
+      app.draggedRouteIndex = null;
+      root.querySelectorAll('.route-item').forEach((node) => node.classList.remove('dragging', 'drag-over'));
+      moveRouteItem(from, to);
+    });
+    handle.addEventListener('pointercancel', () => {
+      app.draggedRouteIndex = null;
+      root.querySelectorAll('.route-item').forEach((node) => node.classList.remove('dragging', 'drag-over'));
+    });
+    item.addEventListener('dragenter', (event) => {
+      event.preventDefault();
+      if (app.draggedRouteIndex !== null && app.draggedRouteIndex !== index) item.classList.add('drag-over');
+    });
+    item.addEventListener('dragleave', () => item.classList.remove('drag-over'));
+    item.addEventListener('dragover', (event) => {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+    });
     item.addEventListener('drop', (event) => {
       event.preventDefault();
-      moveRouteItem(Number(event.dataTransfer.getData('text/plain')), index);
+      root.querySelectorAll('.route-item').forEach((node) => node.classList.remove('dragging', 'drag-over'));
+      const from = app.draggedRouteIndex ?? Number(event.dataTransfer.getData('text/plain'));
+      app.draggedRouteIndex = null;
+      moveRouteItem(from, index);
     });
     item.querySelector('[data-action="up"]').addEventListener('click', () => moveRouteItem(index, index - 1));
     item.querySelector('[data-action="down"]').addEventListener('click', () => moveRouteItem(index, index + 1));
