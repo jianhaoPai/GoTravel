@@ -87,6 +87,7 @@ const app = {
   user: null,
   isAdmin: false,
   mapInitPromise: null,
+  roomWasVisible: false,
   mode: 'demo'
 };
 
@@ -565,8 +566,9 @@ async function joinTripByInvite() {
   render();
 }
 
-async function persistRoute() {
+async function persistRoute(options = {}) {
   if (!requireTrip()) return;
+  const { reload = false, silent = false } = options;
 
   if (app.mode !== 'supabase') {
     saveLocal();
@@ -581,11 +583,11 @@ async function persistRoute() {
   }, { onConflict: 'trip_id' });
 
   if (error) {
-    alert(error.message);
+    if (!silent) alert(error.message);
     return;
   }
 
-  await loadState();
+  if (reload) await loadState();
 }
 
 function setPlaceDraft(place) {
@@ -873,7 +875,7 @@ async function persistPlace(place) {
         note: place.note,
         created_by: currentUserId()
       })
-      .select('id')
+      .select('*')
       .single();
 
     if (error) {
@@ -881,14 +883,28 @@ async function persistPlace(place) {
       return false;
     }
 
-    await app.supabase.from('place_wants').insert({
+    const { error: wantError } = await app.supabase.from('place_wants').insert({
       place_id: created.id,
       user_id: currentUserId()
     });
-    await loadState();
+    if (wantError) alert(wantError.message);
+
+    app.state.places.push({
+      id: created.id,
+      name: created.name,
+      address: created.address || '',
+      lat: Number(created.lat),
+      lng: Number(created.lng),
+      category: created.category,
+      note: created.note || '',
+      createdBy: created.created_by
+    });
+    if (!wantError) app.state.wants.push({ placeId: created.id, userId: currentUserId() });
   }
 
-  render();
+  renderPlaces();
+  renderStats();
+  renderMap();
   if (app.map) {
     app.map.setZoomAndCenter(15, [place.lng, place.lat]);
   }
@@ -901,12 +917,26 @@ async function deletePlace(placeId) {
   if (!place) return;
   if (!confirm(`删除「${place.name}」？相关想去和评论也会一起删除。`)) return;
 
+  const previousState = {
+    places: [...app.state.places],
+    wants: [...app.state.wants],
+    comments: [...app.state.comments],
+    routePlaceIds: [...app.state.routePlaceIds],
+    selectedPlaceId: app.selectedPlaceId
+  };
+  const routeChanged = app.state.routePlaceIds.includes(placeId);
   app.state.routePlaceIds = app.state.routePlaceIds.filter((id) => id !== placeId);
+  app.state.places = app.state.places.filter((item) => item.id !== placeId);
+  app.state.wants = app.state.wants.filter((want) => want.placeId !== placeId);
+  app.state.comments = app.state.comments.filter((comment) => comment.placeId !== placeId);
+  if (app.selectedPlaceId === placeId) app.selectedPlaceId = null;
+
+  renderPlaces();
+  renderStats();
+  renderRoute();
+  renderMap();
 
   if (app.mode !== 'supabase') {
-    app.state.places = app.state.places.filter((item) => item.id !== placeId);
-    app.state.wants = app.state.wants.filter((want) => want.placeId !== placeId);
-    app.state.comments = app.state.comments.filter((comment) => comment.placeId !== placeId);
     saveLocal();
   } else {
     let query = app.supabase
@@ -919,15 +949,21 @@ async function deletePlace(placeId) {
     const { error } = await query;
 
     if (error) {
+      app.state.places = previousState.places;
+      app.state.wants = previousState.wants;
+      app.state.comments = previousState.comments;
+      app.state.routePlaceIds = previousState.routePlaceIds;
+      app.selectedPlaceId = previousState.selectedPlaceId;
+      renderPlaces();
+      renderStats();
+      renderRoute();
+      renderMap();
       alert(error.message);
       return;
     }
 
-    await persistRoute();
-    await loadState();
+    if (routeChanged) await persistRoute({ silent: true });
   }
-
-  render();
 }
 
 async function savePlace() {
@@ -966,11 +1002,12 @@ async function toggleWant() {
       alert(error.message);
       return;
     }
-    await loadState();
+    app.state.wants.push({ placeId, userId: currentUserId() });
   }
 
-  openDetail(placeId);
-  render();
+  renderPlaces();
+  renderStats();
+  renderDetail();
 }
 
 async function addComment() {
@@ -988,22 +1025,28 @@ async function addComment() {
     });
     saveLocal();
   } else {
-    const { error } = await app.supabase.from('comments').insert({
+    const { data: created, error } = await app.supabase.from('comments').insert({
       trip_id: app.state.trip.id,
       place_id: app.selectedPlaceId,
       user_id: currentUserId(),
       content
-    });
+    }).select('id')
+      .single();
     if (error) {
       alert(error.message);
       return;
     }
-    await loadState();
+    app.state.comments.push({
+      id: created?.id || `comment-${Date.now()}`,
+      placeId: app.selectedPlaceId,
+      userId: currentUserId(),
+      content
+    });
   }
 
   $('commentInput').value = '';
-  openDetail(app.selectedPlaceId);
-  render();
+  renderPlaces();
+  renderDetail();
 }
 
 function distanceKm(a, b) {
@@ -1157,10 +1200,13 @@ function renderView() {
 
   if (needsRoom) {
     ensureMap();
-    window.setTimeout(() => {
-      if (app.map?.resize) app.map.resize();
-    }, 0);
+    if (!app.roomWasVisible) {
+      window.setTimeout(() => {
+        if (app.map?.resize) app.map.resize();
+      }, 0);
+    }
   }
+  app.roomWasVisible = needsRoom;
 }
 
 function renderAuth() {
@@ -1357,18 +1403,28 @@ async function moveRouteItem(from, to) {
   const [moved] = ids.splice(from, 1);
   ids.splice(to, 0, moved);
   await persistRoute();
-  render();
+  renderStats();
+  renderRoute();
+  renderRouteLine();
 }
 
 async function removeRouteItem(index) {
   if (index < 0 || index >= app.state.routePlaceIds.length) return;
   app.state.routePlaceIds.splice(index, 1);
   await persistRoute();
-  render();
+  renderStats();
+  renderRoute();
+  renderRouteLine();
 }
 
 function openDetail(placeId) {
   app.selectedPlaceId = placeId;
+  renderDetail();
+  if (!$('detailModal').open) $('detailModal').showModal();
+}
+
+function renderDetail() {
+  const placeId = app.selectedPlaceId;
   const place = app.state.places.find((item) => item.id === placeId);
   if (!place) return;
   const member = memberById(place.createdBy);
@@ -1381,7 +1437,6 @@ function openDetail(placeId) {
     ? comments.map((comment) => `<div class="comment"><strong>${memberById(comment.userId).name}</strong><span>${comment.content}</span></div>`).join('')
     : '<div class="empty">还没有讨论</div>';
   $('commentInput').value = '';
-  $('detailModal').showModal();
 }
 
 function resetPlaceForm() {
@@ -1458,12 +1513,16 @@ function bindEvents() {
     if (!requireTrip()) return;
     app.state.routePlaceIds = app.state.places.map((place) => place.id);
     await persistRoute();
-    render();
+    renderStats();
+    renderRoute();
+    renderRouteLine();
   });
   $('clearRoute').addEventListener('click', async () => {
     app.state.routePlaceIds = [];
     await persistRoute();
-    render();
+    renderStats();
+    renderRoute();
+    renderRouteLine();
   });
   $('openNavigation').addEventListener('click', () => openNavigation());
   $('detailWant').addEventListener('click', toggleWant);
@@ -1471,7 +1530,10 @@ function bindEvents() {
     if (!app.selectedPlaceId || app.state.routePlaceIds.includes(app.selectedPlaceId)) return;
     app.state.routePlaceIds.push(app.selectedPlaceId);
     await persistRoute();
-    render();
+    renderStats();
+    renderRoute();
+    renderRouteLine();
+    renderDetail();
   });
   $('detailNavigate').addEventListener('click', () => {
     const place = app.state.places.find((item) => item.id === app.selectedPlaceId);
