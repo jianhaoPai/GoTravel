@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>旅伴地图</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <section class="entry-screen" id="loginView" hidden>
+      <div class="entry-visual" aria-hidden="true"></div>
+      <div class="entry-card">
+        <p class="eyebrow teal">Travel Map</p>
+        <h1>先登录，再和朋友共建旅行地图</h1>
+        <p class="entry-copy">登录后可以创建旅行房间，或用朋友发来的邀请码加入。房间内的地点、评论和路线只对成员可见。</p>
+        <section class="auth-method">
+          <label>
+            用户名
+            <input id="usernameInput" autocomplete="username" placeholder="例如 leo" />
+          </label>
+          <label>
+            密码
+            <input id="passwordInput" type="password" autocomplete="current-password" placeholder="至少 6 位" />
+          </label>
+          <button class="large-primary" id="passwordSignIn" type="button">登录</button>
+        </section>
+        <p class="entry-hint" id="loginHint">用户由管理员在 Supabase 里维护。</p>
+      </div>
+    </section>
+
+    <section class="entry-screen lobby-screen" id="lobbyView" hidden>
+      <div class="entry-card wide">
+        <div class="lobby-head">
+          <div>
+            <p class="eyebrow teal" id="lobbyAuthStatus">已登录</p>
+            <h1>创建或加入一个旅行房间</h1>
+          </div>
+          <button class="small-ghost" id="lobbySignOut" type="button">退出登录</button>
+        </div>
+        <div class="lobby-grid">
+          <section class="lobby-panel" id="lobbyCreatePanel">
+            <div class="section-head">
+              <h2>创建房间</h2>
+              <button class="small-primary" id="lobbyCreateTrip" type="button">创建</button>
+            </div>
+            <label>
+              名称
+              <input id="lobbyTripNameInput" value="上海周末漫游" />
+            </label>
+            <div class="two-cols">
+              <label>
+                城市
+                <input id="lobbyTripCityInput" value="上海" />
+              </label>
+              <label>
+                开始日期
+                <input id="lobbyTripStartDateInput" type="date" />
+              </label>
+            </div>
+            <label>
+              结束日期
+              <input id="lobbyTripEndDateInput" type="date" />
+            </label>
+            <p class="entry-hint compact" id="createTripPermissionHint" hidden>当前配置不允许普通用户创建房间，请输入邀请码加入已有房间。</p>
+          </section>
+          <section class="lobby-panel">
+            <div class="section-head">
+              <h2>已加入房间</h2>
+            </div>
+            <div class="joined-trip-list" id="joinedTripList">
+              <div class="empty compact">还没有加入过房间</div>
+            </div>
+          </section>
+          <section class="lobby-panel">
+            <div class="section-head">
+              <h2>加入房间</h2>
+              <button class="small-primary" id="lobbyJoinTrip" type="button">加入</button>
+            </div>
+            <label>
+              邀请码
+              <input id="lobbyInviteCodeInput" placeholder="输入 6 位邀请码" />
+            </label>
+            <label>
+              你的昵称
+              <input id="lobbyDisplayNameInput" placeholder="例如 阿辰" />
+            </label>
+          </section>
+        </div>
+      </div>
+    </section>
+
+    <main class="app-shell" id="roomView" hidden>
+      <aside class="sidebar" aria-label="旅行控制台">
+        <section class="trip-hero">
+          <div>
+            <p class="eyebrow" id="tripCity">旅行</p>
+            <h1 id="tripName">朋友旅行地图</h1>
+            <p id="tripDate">把想去的点放到同一张地图上</p>
+          </div>
+          <button class="icon-button" id="copyShareLink" title="复制分享链接" type="button">↗</button>
+        </section>
+
+        <section class="auth-panel">
+          <div>
+            <strong id="authStatus">本地演示模式</strong>
+            <span id="authSubtitle" hidden>真实多人同步需要 Supabase 登录</span>
+          </div>
+          <button class="small-primary" id="openAuth" type="button">登录</button>
+        </section>
+
+        <section>
+          <div class="section-head">
+            <h2>成员</h2>
+          </div>
+          <div class="chips" id="memberFilters"></div>
+        </section>
+
+        <section>
+          <h2>分类</h2>
+          <div class="chips" id="categoryFilters"></div>
+        </section>
+
+        <section class="stats-grid" aria-label="旅行统计">
+          <div>
+            <strong id="placeCount">0</strong>
+            <span>收藏点</span>
+          </div>
+          <div>
+            <strong id="memberCount">0</strong>
+            <span>同行人</span>
+          </div>
+          <div>
+            <strong id="routeCount">0</strong>
+            <span>路线点</span>
+          </div>
+        </section>
+
+        <section class="places-panel">
+          <div class="section-head">
+            <h2>大家想去</h2>
+            <button class="small-primary" id="openAddPlace" type="button">添加地点</button>
+          </div>
+          <div class="place-list" id="placeList"></div>
+        </section>
+      </aside>
+
+      <section class="map-workspace">
+        <div id="map" class="map" aria-label="共享地图"></div>
+        <div class="map-overlay">
+          <div class="map-overlay-main">
+            <div>
+              <strong id="overlayTitle">共享收藏地图</strong>
+              <span id="overlaySubtitle">搜索地点直接收藏，也可以点击地图快速选点</span>
+            </div>
+            <button class="small-primary" id="fitMap" type="button">适配视野</button>
+          </div>
+          <div class="map-search-row">
+            <input id="mapSearchInput" placeholder="搜索地点并添加到收藏" />
+            <button class="small-primary" id="mapSearchButton" type="button">搜索</button>
+          </div>
+          <div class="map-search-results" id="mapSearchResults" hidden></div>
+        </div>
+      </section>
+
+      <aside class="route-panel" aria-label="路线规划">
+        <div class="section-head">
+          <div>
+            <h2>路线规划</h2>
+            <p id="routeSummary">0 个地点 · 0 m · 0 分钟</p>
+          </div>
+        </div>
+
+        <div class="route-actions">
+          <button id="selectAllPlaces" type="button">全选</button>
+          <button id="clearRoute" type="button">清空</button>
+          <button id="openNavigation" type="button">导航</button>
+        </div>
+
+        <div class="route-list" id="routeList"></div>
+      </aside>
+    </main>
+
+    <dialog class="modal" id="placeModal">
+      <form method="dialog" class="modal-card" novalidate>
+        <div class="section-head">
+          <h2 id="placeModalTitle">添加地点</h2>
+          <button class="icon-button dark" value="cancel" type="submit">×</button>
+        </div>
+        <label>
+          搜索地点
+          <div class="search-row">
+            <input id="placeSearchInput" placeholder="输入餐厅、景点、街区名称" />
+            <button class="small-primary" id="searchPlace" type="button">搜索</button>
+          </div>
+        </label>
+        <div class="place-search-results" id="placeSearchResults">
+          <div class="empty compact">搜索并选择一个地点后再保存</div>
+        </div>
+        <label>
+          已选地点
+          <input id="placeNameInput" readonly placeholder="尚未选择地点" />
+        </label>
+        <label>
+          地址
+          <input id="placeAddressInput" readonly />
+        </label>
+        <div class="two-cols">
+          <label>
+            分类
+            <select id="placeCategoryInput">
+              <option>景点</option>
+              <option>餐厅</option>
+              <option>街区</option>
+              <option>购物</option>
+            </select>
+          </label>
+        </div>
+        <label>
+          备注
+          <textarea id="placeNoteInput" rows="3"></textarea>
+        </label>
+        <menu>
+          <button class="small-ghost" value="cancel" type="submit">取消</button>
+          <button class="small-primary" id="savePlace" value="default" type="button">保存地点</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog class="modal" id="detailModal">
+      <form method="dialog" class="modal-card">
+        <div class="section-head">
+          <h2 id="detailName">地点详情</h2>
+          <button class="icon-button dark" value="cancel" type="submit">×</button>
+        </div>
+        <p class="detail-address" id="detailAddress"></p>
+        <p class="detail-note" id="detailNote"></p>
+        <div class="detail-meta" id="detailMeta"></div>
+        <div class="route-actions">
+          <button id="detailWant" type="button">我也想去</button>
+          <button id="detailAddRoute" type="button">加入路线</button>
+          <button id="detailNavigate" type="button">导航</button>
+        </div>
+        <h3>讨论</h3>
+        <div id="detailComments" class="comments"></div>
+        <label>
+          新评论
+          <textarea id="commentInput" rows="2" placeholder="比如：这里适合放到晚饭后"></textarea>
+        </label>
+        <menu>
+          <button class="small-primary" id="addComment" type="button">发送评论</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog class="modal" id="authModal">
+      <form method="dialog" class="modal-card">
+        <div class="section-head">
+          <h2>登录</h2>
+          <button class="icon-button dark" value="cancel" type="submit">×</button>
+        </div>
+        <p class="detail-note" id="authHint">使用管理员维护的用户名和密码登录。</p>
+        <section class="auth-method">
+          <label>
+            用户名
+            <input id="modalUsernameInput" autocomplete="username" placeholder="例如 leo" />
+          </label>
+          <label>
+            密码
+            <input id="modalPasswordInput" type="password" autocomplete="current-password" placeholder="至少 6 位" />
+          </label>
+          <button class="small-primary full-button" id="modalPasswordSignIn" type="button">登录</button>
+        </section>
+        <menu>
+          <button class="small-ghost" id="signOut" type="button" hidden>退出登录</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <script src="./config.js"></script>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    <script src="./app.real.js"></script>
+  </body>
+</html>

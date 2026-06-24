@@ -1,0 +1,22 @@
+# System
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Web config — contains API keys, injected via CI from GitHub Secrets
+web/config.js
+
+# WeChat Mini Program
+miniprogram/project.private.config.json
+
+# Dependencies (if any added later)
+node_modules/
+
+# OS
+*.log

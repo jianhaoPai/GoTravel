@@ -1,0 +1,48 @@
+<view class="map-page">
+  <map
+    id="tripMap"
+    class="trip-map"
+    latitude="{{center.latitude}}"
+    longitude="{{center.longitude}}"
+    scale="{{scale}}"
+    markers="{{markers}}"
+    show-location
+    bindmarkertap="onMarkerTap"
+  ></map>
+
+  <view class="map-panel">
+    <view class="panel-header">
+      <view>
+        <text class="panel-title">{{trip.name}}</text>
+        <text class="panel-subtitle">{{places.length}} 个地点 · {{members.length}} 位成员</text>
+      </view>
+      <button class="add-button" bindtap="addPlace">添加</button>
+    </view>
+
+    <scroll-view class="category-strip" scroll-x>
+      <view
+        class="category-chip {{activeCategory === item ? 'active' : ''}}"
+        wx:for="{{categories}}"
+        wx:key="*this"
+        bindtap="selectCategory"
+        data-category="{{item}}"
+      >
+        {{item}}
+      </view>
+    </scroll-view>
+
+    <scroll-view class="place-strip" scroll-x>
+      <view
+        class="mini-card"
+        wx:for="{{filteredPlaces}}"
+        wx:key="_id"
+        bindtap="openPlace"
+        data-id="{{item._id}}"
+      >
+        <view class="mini-owner" style="background: {{item.creatorColor}}">{{item.creatorName}}</view>
+        <text class="mini-name">{{item.name}}</text>
+        <text class="mini-meta">{{item.category}} · {{item.wantCount}} 人想去</text>
+      </view>
+    </scroll-view>
+  </view>
+</view>

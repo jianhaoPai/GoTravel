@@ -1,0 +1,99 @@
+<view class="page home">
+  <view class="hero">
+    <view class="hero-main">
+      <text class="eyebrow">{{trip.city || '旅行'}}</text>
+      <text class="title">{{trip.name || '新的旅行'}}</text>
+      <text class="subtitle">{{trip.dateRange || '邀请朋友一起收藏地点'}}</text>
+    </view>
+    <button class="share-button" open-type="share">分享</button>
+  </view>
+
+  <view class="quick-actions">
+    <button class="primary-button" bindtap="goMap">打开地图</button>
+    <button class="secondary-button" bindtap="goRoute">规划路线</button>
+  </view>
+
+  <view class="create-box">
+    <view class="create-header">
+      <text class="create-title">创建旅行房间</text>
+      <button class="mini-button" bindtap="createTrip">创建</button>
+    </view>
+    <view class="input-grid">
+      <input value="{{draftTrip.name}}" data-field="name" bindinput="updateDraft" placeholder="旅行名称" />
+      <input value="{{draftTrip.city}}" data-field="city" bindinput="updateDraft" placeholder="城市" />
+      <input value="{{draftTrip.dateRange}}" data-field="dateRange" bindinput="updateDraft" placeholder="日期" />
+    </view>
+  </view>
+
+  <text class="section-title">成员</text>
+  <scroll-view class="member-row" scroll-x>
+    <view
+      class="member-chip {{activeMember === item.openid ? 'active' : ''}}"
+      wx:for="{{memberFilters}}"
+      wx:key="openid"
+      bindtap="selectMember"
+      data-openid="{{item.openid}}"
+    >
+      <view class="avatar" style="background: {{item.avatarColor}}">{{item.shortName}}</view>
+      <text>{{item.nickName}}</text>
+    </view>
+  </scroll-view>
+
+  <text class="section-title">分类</text>
+  <scroll-view class="filter-row" scroll-x>
+    <view
+      class="filter-chip {{activeCategory === item ? 'active' : ''}}"
+      wx:for="{{categories}}"
+      wx:key="*this"
+      bindtap="selectCategory"
+      data-category="{{item}}"
+    >
+      {{item}}
+    </view>
+  </scroll-view>
+
+  <view class="summary-grid">
+    <view class="summary-item">
+      <text class="summary-value">{{places.length}}</text>
+      <text class="summary-label">收藏点</text>
+    </view>
+    <view class="summary-item">
+      <text class="summary-value">{{members.length}}</text>
+      <text class="summary-label">同行人</text>
+    </view>
+    <view class="summary-item">
+      <text class="summary-value">{{routeCount}}</text>
+      <text class="summary-label">路线点</text>
+    </view>
+  </view>
+
+  <view class="place-header">
+    <text class="section-title inline-title">大家想去</text>
+    <button class="mini-button" bindtap="addPlaceBySearch">添加地点</button>
+  </view>
+
+  <view wx:if="{{filteredPlaces.length}}">
+    <view
+      class="place-card"
+      wx:for="{{filteredPlaces}}"
+      wx:key="_id"
+      bindtap="openPlace"
+      data-id="{{item._id}}"
+    >
+      <view class="place-top">
+        <view>
+          <text class="place-name">{{item.name}}</text>
+          <text class="place-address">{{item.address}}</text>
+        </view>
+        <view class="place-owner" style="background: {{item.creatorColor}}">{{item.creatorName}}</view>
+      </view>
+      <view class="place-meta">
+        <text>{{item.category}}</text>
+        <text>{{item.wantCount}} 人想去</text>
+        <text>{{item.commentCount}} 条评论</text>
+      </view>
+      <text class="place-note">{{item.note}}</text>
+    </view>
+  </view>
+  <view wx:else class="empty">当前筛选下还没有地点</view>
+</view>

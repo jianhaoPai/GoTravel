@@ -1,0 +1,65 @@
+<view class="page route-page">
+  <view class="route-summary">
+    <view>
+      <text class="route-title">{{routeName}}</text>
+      <text class="route-subtitle">{{routePlaces.length}} 个地点 · 预计 {{stats.distanceText}} · {{stats.durationText}}</text>
+    </view>
+    <button class="save-button" bindtap="saveRoute">保存</button>
+  </view>
+
+  <view class="action-row">
+    <button class="secondary-button compact" bindtap="selectAll">全选地点</button>
+    <button class="ghost-button compact" bindtap="clearRoute">清空路线</button>
+  </view>
+
+  <text class="section-title">路线顺序</text>
+  <view wx:if="{{routePlaces.length}}">
+    <view
+      class="route-item"
+      wx:for="{{routePlaces}}"
+      wx:key="_id"
+      data-index="{{index}}"
+      bindtouchstart="startDrag"
+      bindtouchmove="moveDrag"
+      bindtouchend="endDrag"
+    >
+      <view class="step-index">{{index + 1}}</view>
+      <view class="route-body">
+        <text class="route-place-name">{{item.name}}</text>
+        <text class="route-address">{{item.address}}</text>
+        <view class="route-meta">
+          <text>{{item.category}}</text>
+          <text>{{item.creatorName}}收藏</text>
+        </view>
+      </view>
+      <view class="sort-actions">
+        <button bindtap="moveUp" data-index="{{index}}">↑</button>
+        <button bindtap="moveDown" data-index="{{index}}">↓</button>
+      </view>
+    </view>
+  </view>
+  <view wx:else class="empty">先从下方候选地点加入路线</view>
+
+  <button class="primary-button nav-button" bindtap="openNavigation" disabled="{{routePlaces.length === 0}}">
+    打开地图导航
+  </button>
+
+  <text class="section-title">候选地点</text>
+  <view
+    class="candidate"
+    wx:for="{{candidatePlaces}}"
+    wx:key="_id"
+  >
+    <view>
+      <text class="candidate-name">{{item.name}}</text>
+      <text class="candidate-note">{{item.category}} · {{item.wantCount}} 人想去</text>
+    </view>
+    <button
+      class="{{item.inRoute ? 'remove-button' : 'add-button'}}"
+      bindtap="togglePlace"
+      data-id="{{item._id}}"
+    >
+      {{item.inRoute ? '移除' : '加入'}}
+    </button>
+  </view>
+</view>

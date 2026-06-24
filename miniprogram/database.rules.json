@@ -1,0 +1,26 @@
+{
+  "trips": {
+    "read": false,
+    "write": false
+  },
+  "members": {
+    "read": false,
+    "write": false
+  },
+  "places": {
+    "read": false,
+    "write": false
+  },
+  "comments": {
+    "read": false,
+    "write": false
+  },
+  "placeReactions": {
+    "read": false,
+    "write": false
+  },
+  "routePlans": {
+    "read": false,
+    "write": false
+  }
+}
