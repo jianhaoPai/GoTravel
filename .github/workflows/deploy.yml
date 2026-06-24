@@ -21,6 +21,15 @@ jobs:
           sed -i "s|AMAP_KEY_PLACEHOLDER|${{ secrets.AMAP_KEY }}|g" web/config.js
           sed -i "s|AMAP_SECURITY_CODE_PLACEHOLDER|${{ secrets.AMAP_SECURITY_CODE }}|g" web/config.js
 
+      - name: Verify config has no placeholders left
+        run: |
+          if grep -q 'PLACEHOLDER' web/config.js; then
+            echo "❌ 仍有未替换的占位符，请检查 GitHub Secrets 是否全部设置："
+            grep 'PLACEHOLDER' web/config.js
+            exit 1
+          fi
+          echo "✅ config.js 注入完成"
+
       - name: Deploy web folder to gh-pages
         uses: peaceiris/actions-gh-pages@v3
         with:
