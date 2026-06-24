@@ -66,6 +66,34 @@ create table if not exists public.route_plans (
   unique (trip_id)
 );
 
+create table if not exists public.app_admins (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
+create or replace function public.is_app_admin(target_user_id uuid)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1 from public.app_admins
+    where user_id = target_user_id
+  );
+$$;
+
+create or replace function public.current_user_is_admin()
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select public.is_app_admin(auth.uid());
+$$;
+
 create or replace function public.is_trip_member(target_trip_id uuid)
 returns boolean
 language sql
@@ -190,6 +218,7 @@ alter table public.places enable row level security;
 alter table public.place_wants enable row level security;
 alter table public.comments enable row level security;
 alter table public.route_plans enable row level security;
+alter table public.app_admins enable row level security;
 
 drop policy if exists "members can read trips" on public.trips;
 drop policy if exists "users can create owned trips" on public.trips;
@@ -218,6 +247,7 @@ drop policy if exists "members can read places" on public.places;
 drop policy if exists "members can create places" on public.places;
 drop policy if exists "members can update own places" on public.places;
 drop policy if exists "members can delete own places" on public.places;
+drop policy if exists "admins can delete member places" on public.places;
 create policy "members can read places" on public.places for select using (public.is_trip_member(trip_id));
 create policy "members can create places" on public.places for insert with check (public.is_trip_member(trip_id) and created_by = auth.uid());
 create policy "members can update own places" on public.places for update
@@ -225,6 +255,8 @@ create policy "members can update own places" on public.places for update
   with check (public.is_trip_member(trip_id) and created_by = auth.uid());
 create policy "members can delete own places" on public.places for delete
   using (public.is_trip_member(trip_id) and created_by = auth.uid());
+create policy "admins can delete member places" on public.places for delete
+  using (public.is_trip_member(trip_id) and public.is_app_admin(auth.uid()));
 
 drop policy if exists "members can read wants" on public.place_wants;
 drop policy if exists "members can want places" on public.place_wants;
