@@ -722,6 +722,16 @@ textarea:focus {
   transform: rotate(45deg);
 }
 
+.marker-pin.route-marker {
+  background: var(--brand) !important;
+  font-size: 12px;
+}
+
+.marker-pin.route-marker span {
+  min-width: 18px;
+  text-align: center;
+}
+
 .route-actions {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

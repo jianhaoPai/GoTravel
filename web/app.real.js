@@ -1147,8 +1147,10 @@ async function initMap() {
 
 function markerContent(place) {
   const member = memberById(place.createdBy);
-  const initial = member.name.slice(0, 1);
-  return `<div class="marker-pin" style="background:${member.color}"><span>${initial}</span></div>`;
+  const routeIndex = app.state.routePlaceIds.indexOf(place.id);
+  const label = routeIndex >= 0 ? String(routeIndex + 1) : member.name.slice(0, 1);
+  const className = routeIndex >= 0 ? 'marker-pin route-marker' : 'marker-pin';
+  return `<div class="${className}" style="background:${member.color}"><span>${label}</span></div>`;
 }
 
 function renderMap() {
@@ -1664,7 +1666,7 @@ async function moveRouteItem(from, to) {
   await persistRoute();
   renderStats();
   renderRoute();
-  renderRouteLine();
+  renderMap();
 }
 
 async function removeRouteItem(index) {
@@ -1673,7 +1675,7 @@ async function removeRouteItem(index) {
   await persistRoute();
   renderStats();
   renderRoute();
-  renderRouteLine();
+  renderMap();
 }
 
 function openDetail(placeId) {
@@ -1805,14 +1807,14 @@ function bindEvents() {
     await persistRoute();
     renderStats();
     renderRoute();
-    renderRouteLine();
+    renderMap();
   });
   $('clearRoute').addEventListener('click', async () => {
     app.state.routePlaceIds = [];
     await persistRoute();
     renderStats();
     renderRoute();
-    renderRouteLine();
+    renderMap();
   });
   $('routeModeWalking').addEventListener('click', () => setRouteMode('walking'));
   $('routeModeDriving').addEventListener('click', () => setRouteMode('driving'));
@@ -1824,7 +1826,7 @@ function bindEvents() {
     await persistRoute();
     renderStats();
     renderRoute();
-    renderRouteLine();
+    renderMap();
     renderDetail();
   });
   $('detailNavigate').addEventListener('click', () => {
