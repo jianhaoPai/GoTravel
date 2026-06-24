@@ -21,7 +21,7 @@ window.TRAVEL_APP_CONFIG = {
   supabaseUrl: 'https://你的项目.supabase.co',
   supabaseAnonKey: '你的 anon public key',
   amapKey: '你的高德 Web JS API key',
-  amapSecurityJsCode: '你的高德安全密钥，可选',
+  amapSecurityJsCode: '你的高德安全密钥，通常必填',
   authUsernameDomain: 'travel.local',
   allowTripCreation: true,
   useLocalStorage: false
@@ -57,8 +57,9 @@ leo@travel.local
 ## 1.2 配置高德地图
 
 1. 打开高德开放平台，创建「Web端 JS API」应用 Key。
-2. 如果控制台生成了安全密钥，把它填到 `amapSecurityJsCode`。
-3. 如果设置了 Web 端域名白名单，本地测试加入 `localhost`，线上部署后加入你的正式域名。
+2. 把 Key 填到 `amapKey`。
+3. 把同一个应用里的「安全密钥」填到 `amapSecurityJsCode`。搜索地点依赖高德插件服务，新建应用通常必须配置这个值。
+4. 如果设置了 Web 端域名白名单，本地测试加入 `localhost` 和 `127.0.0.1`，线上部署后加入你的正式域名。
 
 ## 2. 建表和权限
 
