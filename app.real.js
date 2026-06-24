@@ -80,6 +80,7 @@ const app = {
   selectedPlaceId: null,
   placeDraft: null,
   placeSearch: null,
+  autoComplete: null,
   joinedTrips: [],
   supabase: null,
   session: null,
@@ -124,6 +125,20 @@ function formatDateRange(start, end) {
   return start || end;
 }
 
+function amapSearchErrorMessage(message) {
+  const normalized = String(message || '').trim();
+  const config = window.TRAVEL_APP_CONFIG || {};
+  const hints = [];
+
+  if (!config.amapSecurityJsCode) {
+    hints.push('web/config.js 里的 amapSecurityJsCode 还是空的');
+  }
+  hints.push('确认高德 Web 端应用的域名白名单包含 localhost');
+  hints.push('确认 Key 属于 Web端 JS API 应用');
+
+  return `${normalized || '高德服务返回 error'}。请检查：${hints.join('；')}。`;
+}
+
 function loadAmapScript() {
   if (window.AMap) return Promise.resolve();
 
@@ -140,7 +155,7 @@ function loadAmapScript() {
 
   return new Promise((resolve, reject) => {
     const script = document.createElement('script');
-    script.src = `https://webapi.amap.com/maps?v=2.0&key=${encodeURIComponent(config.amapKey)}`;
+    script.src = `https://webapi.amap.com/maps?v=2.0&key=${encodeURIComponent(config.amapKey)}&plugin=AMap.PlaceSearch,AMap.AutoComplete`;
     script.async = true;
     script.onload = resolve;
     script.onerror = () => reject(new Error('AMAP_LOAD_FAILED'));
@@ -597,7 +612,7 @@ function normalizePoi(poi) {
 }
 
 async function ensurePlaceSearch() {
-  if (app.placeSearch) return app.placeSearch;
+  if (app.placeSearch && app.autoComplete) return { placeSearch: app.placeSearch, autoComplete: app.autoComplete };
   if (!configuredForAmap()) {
     alert('请先在 web/config.js 配置高德地图 Key，才能搜索地点。');
     return null;
@@ -605,13 +620,19 @@ async function ensurePlaceSearch() {
 
   await loadAmapScript();
   return new Promise((resolve) => {
-    AMap.plugin('AMap.PlaceSearch', () => {
+    AMap.plugin(['AMap.PlaceSearch', 'AMap.AutoComplete'], () => {
       app.placeSearch = new AMap.PlaceSearch({
-        city: app.state.trip?.city || undefined,
+        city: app.state.trip?.city || '全国',
+        citylimit: false,
+        extensions: 'all',
         pageSize: 8,
         pageIndex: 1
       });
-      resolve(app.placeSearch);
+      app.autoComplete = new AMap.AutoComplete({
+        city: app.state.trip?.city || '全国',
+        citylimit: false
+      });
+      resolve({ placeSearch: app.placeSearch, autoComplete: app.autoComplete });
     });
   });
 }
@@ -624,39 +645,95 @@ async function searchPlace() {
     return;
   }
 
-  const placeSearch = await ensurePlaceSearch();
-  if (!placeSearch) return;
+  const result = await runPlaceSearch(keyword, $('placeSearchResults'));
+  if (!result.ok) {
+    $('placeSearchResults').innerHTML = `<div class="empty compact">搜索失败：${amapSearchErrorMessage(result.message)}</div>`;
+    return;
+  }
 
-  $('placeSearchResults').innerHTML = '<div class="empty compact">正在搜索...</div>';
-  placeSearch.setCity(app.state.trip?.city || '');
-  placeSearch.search(keyword, (status, result) => {
-    if (status !== 'complete') {
-      $('placeSearchResults').innerHTML = '<div class="empty compact">搜索失败，请换个关键词或稍后再试</div>';
-      return;
-    }
-
-    const pois = (result.poiList?.pois || []).map(normalizePoi).filter(Boolean);
-    renderPlaceSearchResults(pois);
-  });
+  renderPlaceSearchResults(result.places);
 }
 
 async function runPlaceSearch(keyword, loadingRoot) {
-  const placeSearch = await ensurePlaceSearch();
-  if (!placeSearch) return [];
+  const searchers = await ensurePlaceSearch();
+  if (!searchers) return { ok: false, places: [], message: '高德地点搜索服务不可用' };
+  const { placeSearch, autoComplete } = searchers;
 
   loadingRoot.innerHTML = '<div class="empty compact">正在搜索...</div>';
-  placeSearch.setCity(app.state.trip?.city || '');
+  const city = app.state.trip?.city || '全国';
 
-  return new Promise((resolve) => {
+  const searchOnce = (targetCity) => new Promise((resolve) => {
+    placeSearch.setCity(targetCity);
     placeSearch.search(keyword, (status, result) => {
-      if (status !== 'complete') {
-        resolve(null);
-        return;
-      }
-
-      resolve((result.poiList?.pois || []).map(normalizePoi).filter(Boolean));
+      const places = status === 'complete'
+        ? (result.poiList?.pois || []).map(normalizePoi).filter(Boolean)
+        : [];
+      resolve({
+        ok: status === 'complete',
+        places,
+        status,
+        info: result?.info || result?.message || ''
+      });
     });
   });
+
+  let result = await searchOnce(city);
+  if (result.ok && result.places.length) {
+    return { ok: true, places: result.places, message: '' };
+  }
+
+  if (city !== '全国') {
+    result = await searchOnce('全国');
+    if (result.ok) {
+      return { ok: true, places: result.places, message: '' };
+    }
+  }
+
+  const autoOnce = (targetCity) => new Promise((resolve) => {
+    if (autoComplete.setCity) autoComplete.setCity(targetCity);
+    autoComplete.search(keyword, (status, autoResult) => {
+      const tips = status === 'complete' ? (autoResult.tips || []) : [];
+      const places = tips
+        .map((tip) => {
+          if (!tip.location) return null;
+          const lng = typeof tip.location.getLng === 'function' ? tip.location.getLng() : tip.location.lng;
+          const lat = typeof tip.location.getLat === 'function' ? tip.location.getLat() : tip.location.lat;
+          if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) return null;
+          return {
+            name: tip.name || '未命名地点',
+            address: [tip.district, tip.address].filter(Boolean).join(' ') || tip.district || '',
+            lat: Number(lat),
+            lng: Number(lng)
+          };
+        })
+        .filter(Boolean);
+      resolve({
+        ok: status === 'complete',
+        places,
+        status,
+        info: autoResult?.info || autoResult?.message || ''
+      });
+    });
+  });
+
+  let autoResult = await autoOnce(city);
+  if (autoResult.ok && autoResult.places.length) {
+    return { ok: true, places: autoResult.places, message: '' };
+  }
+
+  if (city !== '全国') {
+    autoResult = await autoOnce('全国');
+    if (autoResult.ok && autoResult.places.length) {
+      return { ok: true, places: autoResult.places, message: '' };
+    }
+  }
+
+  const detail = [result.status, result.info, autoResult?.status, autoResult?.info].filter(Boolean).join(' / ');
+  return {
+    ok: result.ok || autoResult?.ok || false,
+    places: [],
+    message: detail || '没有返回结果'
+  };
 }
 
 function renderMapSearchResults(results = []) {
@@ -700,12 +777,12 @@ async function searchMapPlace() {
   }
 
   $('mapSearchResults').hidden = false;
-  const results = await runPlaceSearch(keyword, $('mapSearchResults'));
-  if (results === null) {
-    $('mapSearchResults').innerHTML = '<div class="empty compact">搜索失败，请稍后再试</div>';
+  const result = await runPlaceSearch(keyword, $('mapSearchResults'));
+  if (!result.ok) {
+    $('mapSearchResults').innerHTML = `<div class="empty compact">搜索失败：${amapSearchErrorMessage(result.message)}</div>`;
     return;
   }
-  renderMapSearchResults(results);
+  renderMapSearchResults(result.places);
 }
 
 async function persistPlace(place) {
