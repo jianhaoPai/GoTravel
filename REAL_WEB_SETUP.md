@@ -99,7 +99,7 @@ http://localhost:5173
 
 - `trips`：只有房间成员可读；只有 owner 可更新。
 - `trip_members`：只有成员可读；邀请码加入通过 `join_trip_by_invite` RPC 完成。
-- `places`：只有成员可读写；地点创建人只能写自己的地点。
+- `places`：只有成员可读；地点创建人可更新和删除自己的地点，删除会级联清理相关想去和评论。
 - `place_wants`：只有成员可读写自己的想去记录。
 - `comments`：只有成员可读写评论。
 - `route_plans`：房间成员可共同维护路线。

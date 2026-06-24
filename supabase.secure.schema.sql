@@ -217,11 +217,14 @@ create policy "members can update own profile" on public.trip_members for update
 drop policy if exists "members can read places" on public.places;
 drop policy if exists "members can create places" on public.places;
 drop policy if exists "members can update own places" on public.places;
+drop policy if exists "members can delete own places" on public.places;
 create policy "members can read places" on public.places for select using (public.is_trip_member(trip_id));
 create policy "members can create places" on public.places for insert with check (public.is_trip_member(trip_id) and created_by = auth.uid());
 create policy "members can update own places" on public.places for update
   using (public.is_trip_member(trip_id) and created_by = auth.uid())
   with check (public.is_trip_member(trip_id) and created_by = auth.uid());
+create policy "members can delete own places" on public.places for delete
+  using (public.is_trip_member(trip_id) and created_by = auth.uid());
 
 drop policy if exists "members can read wants" on public.place_wants;
 drop policy if exists "members can want places" on public.place_wants;
