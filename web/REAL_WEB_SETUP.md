@@ -95,11 +95,23 @@ http://localhost:5173
 5. 把邀请码和链接发给朋友。
 6. 朋友用自己的用户名密码登录后，输入邀请码加入房间。
 
+## 6. 设置管理员
+
+管理员可以删除同一房间内任何成员添加的地点。先在 Supabase Authentication -> Users 里找到管理员用户的 `id`，然后执行：
+
+```sql
+insert into public.app_admins (user_id)
+values ('这里替换成管理员 auth.users.id')
+on conflict (user_id) do nothing;
+```
+
+设置后让该用户重新登录一次，前端会显示所有地点的删除按钮。
+
 ## 权限模型
 
 - `trips`：只有房间成员可读；只有 owner 可更新。
 - `trip_members`：只有成员可读；邀请码加入通过 `join_trip_by_invite` RPC 完成。
-- `places`：只有成员可读；地点创建人可更新和删除自己的地点，删除会级联清理相关想去和评论。
+- `places`：只有成员可读；地点创建人可更新和删除自己的地点；管理员可删除同房间内任何地点，删除会级联清理相关想去和评论。
 - `place_wants`：只有成员可读写自己的想去记录。
 - `comments`：只有成员可读写评论。
 - `route_plans`：房间成员可共同维护路线。

@@ -85,6 +85,7 @@ const app = {
   supabase: null,
   session: null,
   user: null,
+  isAdmin: false,
   mapInitPromise: null,
   mode: 'demo'
 };
@@ -274,6 +275,22 @@ async function initAuth() {
   });
 }
 
+async function loadAdminStatus() {
+  if (app.mode !== 'supabase' || !app.user) {
+    app.isAdmin = app.mode === 'demo';
+    return;
+  }
+
+  const { data, error } = await app.supabase.rpc('current_user_is_admin');
+  if (error) {
+    console.error(error);
+    app.isAdmin = false;
+    return;
+  }
+
+  app.isAdmin = Boolean(data);
+}
+
 async function loadJoinedTrips() {
   if (app.mode !== 'supabase' || !app.user) {
     const trip = app.state.trip || demoState.trip;
@@ -310,6 +327,7 @@ async function loadJoinedTrips() {
 async function loadState() {
   if (app.mode !== 'supabase') {
     loadLocal();
+    await loadAdminStatus();
     await loadJoinedTrips();
     return;
   }
@@ -317,9 +335,11 @@ async function loadState() {
   if (!app.user) {
     app.state = structuredClone(emptyState);
     app.joinedTrips = [];
+    app.isAdmin = false;
     return;
   }
 
+  await loadAdminStatus();
   await loadJoinedTrips();
 
   const tripId = currentTripIdFromUrl();
@@ -451,6 +471,7 @@ async function signOut(event) {
   clearUrlTrip();
   app.user = null;
   app.session = null;
+  app.isAdmin = false;
   app.state = structuredClone(emptyState);
   render();
 
@@ -888,11 +909,14 @@ async function deletePlace(placeId) {
     app.state.comments = app.state.comments.filter((comment) => comment.placeId !== placeId);
     saveLocal();
   } else {
-    const { error } = await app.supabase
+    let query = app.supabase
       .from('places')
       .delete()
-      .eq('id', placeId)
-      .eq('created_by', currentUserId());
+      .eq('id', placeId);
+
+    if (!app.isAdmin) query = query.eq('created_by', currentUserId());
+
+    const { error } = await query;
 
     if (error) {
       alert(error.message);
@@ -1234,7 +1258,7 @@ function renderPlaces() {
     const member = memberById(place.createdBy);
     const card = document.createElement('article');
     card.className = 'place-card';
-    const canDelete = app.mode === 'demo' || place.createdBy === currentUserId();
+    const canDelete = app.mode === 'demo' || app.isAdmin || place.createdBy === currentUserId();
     card.innerHTML = `
       <div class="place-card-actions">
         <button class="place-open" type="button">
@@ -1293,10 +1317,12 @@ function renderRoute() {
           <span class="route-name">${place.name}</span>
           <span class="route-address">${place.address}</span>
         </div>
-        <div class="sort-buttons">
-          <button type="button" data-action="up">↑</button>
-          <button type="button" data-action="down">↓</button>
-          <button type="button" data-action="remove">删除</button>
+        <div class="route-tools">
+          <div class="sort-buttons">
+            <button type="button" data-action="up">↑</button>
+            <button type="button" data-action="down">↓</button>
+          </div>
+          <button class="route-remove" type="button" data-action="remove">移除</button>
         </div>
       </div>
     `;
