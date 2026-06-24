@@ -81,6 +81,7 @@ const app = {
   routeMetric: null,
   routeSearchToken: 0,
   draggedRouteIndex: null,
+  mobilePanel: 'places',
   selectedPlaceId: null,
   placeDraft: null,
   placeSearch: null,
@@ -1232,6 +1233,18 @@ function searchRouteSegment(service, start, end) {
   });
 }
 
+function estimatedRouteSegment(start, end, error) {
+  const distanceMeters = distanceKm(start, end) * 1000;
+  const speedKmh = app.routeMode === 'driving' ? 28 : 4.5;
+  return {
+    path: [[start.lng, start.lat], [end.lng, end.lat]],
+    distance: distanceMeters,
+    duration: Math.round((distanceMeters / 1000 / speedKmh) * 3600),
+    estimated: true,
+    error: error?.message || '路线不可达'
+  };
+}
+
 async function calculateAmapRoute(places, token) {
   try {
     await loadAmapRoutePlugins();
@@ -1240,7 +1253,11 @@ async function calculateAmapRoute(places, token) {
     const segments = [];
 
     for (let i = 1; i < places.length; i += 1) {
-      segments.push(await searchRouteSegment(service, places[i - 1], places[i]));
+      try {
+        segments.push(await searchRouteSegment(service, places[i - 1], places[i]));
+      } catch (segmentError) {
+        segments.push(estimatedRouteSegment(places[i - 1], places[i], segmentError));
+      }
       if (token !== app.routeSearchToken) return;
     }
 
@@ -1257,12 +1274,13 @@ async function calculateAmapRoute(places, token) {
       durationSeconds: segments.reduce((sum, item) => sum + item.duration, 0),
       segments: segments.map((segment) => ({
         distanceMeters: segment.distance,
-        durationSeconds: segment.duration
+        durationSeconds: segment.duration,
+        estimated: Boolean(segment.estimated),
+        error: segment.error || ''
       })),
-      status: 'ready'
+      status: segments.some((segment) => segment.estimated) ? 'partial' : 'ready'
     };
   } catch (error) {
-    console.warn(error);
     app.routeMetric = {
       key: routeKey(places),
       status: 'fallback',
@@ -1342,6 +1360,13 @@ function renderView() {
     }
   }
   app.roomWasVisible = needsRoom;
+}
+
+function renderMobilePanels() {
+  $('roomView').classList.toggle('mobile-route-active', app.mobilePanel === 'route');
+  $('roomView').classList.toggle('mobile-places-active', app.mobilePanel === 'places');
+  $('mobilePlacesTab').classList.toggle('active', app.mobilePanel === 'places');
+  $('mobileRouteTab').classList.toggle('active', app.mobilePanel === 'route');
 }
 
 function renderAuth() {
@@ -1488,9 +1513,11 @@ function renderRouteSummary() {
     return;
   }
 
-  if (metric?.status === 'ready') {
+  if (metric?.status === 'ready' || metric?.status === 'partial') {
     const formatted = formatRouteMetric(metric.distanceMeters, metric.durationSeconds);
-    $('routeSummary').textContent = `${places.length} 个地点 · ${modeName} · ${formatted.distance} · ${formatted.duration}`;
+    const estimatedCount = metric.segments?.filter((segment) => segment.estimated).length || 0;
+    const suffix = estimatedCount ? ` · ${estimatedCount} 段直线估算` : '';
+    $('routeSummary').textContent = `${places.length} 个地点 · ${modeName} · ${formatted.distance} · ${formatted.duration}${suffix}`;
     return;
   }
 
@@ -1511,8 +1538,9 @@ function routeSegmentText(places, index) {
   const modeName = app.routeMode === 'driving' ? '驾车' : '走路';
   const segment = metric?.segments?.[index];
 
-  if (metric?.status === 'ready' && segment) {
+  if ((metric?.status === 'ready' || metric?.status === 'partial') && segment) {
     const formatted = formatRouteMetric(segment.distanceMeters, segment.durationSeconds);
+    if (segment.estimated) return `到下一站 · 直线约 ${formatted.distance} · ${segment.error}`;
     return `到下一站 · ${modeName} ${formatted.distance} · ${formatted.duration}`;
   }
 
@@ -1617,6 +1645,7 @@ function renderRoute() {
 
 function render() {
   renderView();
+  renderMobilePanels();
   renderAuth();
   renderLobby();
   renderTrip();
@@ -1727,6 +1756,16 @@ async function openTrip(tripId) {
 }
 
 function bindEvents() {
+  $('mobilePlacesTab').addEventListener('click', () => {
+    app.mobilePanel = 'places';
+    renderMobilePanels();
+    window.setTimeout(() => app.map?.resize?.(), 0);
+  });
+  $('mobileRouteTab').addEventListener('click', () => {
+    app.mobilePanel = 'route';
+    renderMobilePanels();
+    window.setTimeout(() => app.map?.resize?.(), 0);
+  });
   $('openAuth').addEventListener('click', () => $('authModal').showModal());
   $('passwordSignIn').addEventListener('click', signInWithPassword);
   $('modalPasswordSignIn').addEventListener('click', signInWithPassword);
