@@ -77,6 +77,9 @@ const app = {
   map: null,
   markers: new Map(),
   routeLine: null,
+  routeMode: 'walking',
+  routeMetric: null,
+  routeSearchToken: 0,
   selectedPlaceId: null,
   placeDraft: null,
   placeSearch: null,
@@ -162,6 +165,13 @@ function loadAmapScript() {
     script.onload = resolve;
     script.onerror = () => reject(new Error('AMAP_LOAD_FAILED'));
     document.head.appendChild(script);
+  });
+}
+
+function loadAmapRoutePlugins() {
+  if (!window.AMap) return Promise.reject(new Error('AMAP_NOT_READY'));
+  return new Promise((resolve) => {
+    AMap.plugin(['AMap.Walking', 'AMap.Driving'], resolve);
   });
 }
 
@@ -1069,6 +1079,13 @@ function routeStats(routePlaces) {
   };
 }
 
+function formatRouteMetric(distanceMeters, durationSeconds) {
+  const distance = distanceMeters < 1000 ? `${Math.round(distanceMeters)} m` : `${(distanceMeters / 1000).toFixed(1)} km`;
+  const minutes = Math.max(1, Math.round(durationSeconds / 60));
+  const duration = minutes < 60 ? `${minutes} 分钟` : `${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分钟`;
+  return { distance, duration };
+}
+
 function filteredPlaces() {
   return app.state.places.filter((place) => {
     const memberOk = app.filters.member === 'all' || place.createdBy === app.filters.member;
@@ -1145,21 +1162,123 @@ function renderMap() {
   renderRouteLine();
 }
 
+function removeRouteLine() {
+  if (!app.map) return;
+  if (Array.isArray(app.routeLine)) {
+    app.routeLine.forEach((line) => app.map.remove(line));
+  } else if (app.routeLine) {
+    app.map.remove(app.routeLine);
+  }
+  app.routeLine = null;
+}
+
+function drawRoutePolyline(paths, dashed = false) {
+  if (!app.map || paths.length < 2) return null;
+  const line = new AMap.Polyline({
+    path: paths,
+    strokeColor: dashed ? '#64748b' : '#0f766e',
+    strokeWeight: dashed ? 4 : 5,
+    strokeOpacity: dashed ? 0.48 : 0.82,
+    strokeStyle: dashed ? 'dashed' : 'solid',
+    lineJoin: 'round',
+    lineCap: 'round'
+  });
+  app.map.add(line);
+  return line;
+}
+
+function routeKey(places = routePlaces()) {
+  return `${app.routeMode}:${places.map((place) => place.id).join('|')}`;
+}
+
+function amapPointToArray(point) {
+  if (Array.isArray(point)) return point;
+  if (typeof point.getLng === 'function') return [point.getLng(), point.getLat()];
+  return [point.lng, point.lat];
+}
+
+function searchRouteSegment(service, start, end) {
+  return new Promise((resolve, reject) => {
+    const callback = (status, result) => {
+      if (status !== 'complete' || !result?.routes?.length) {
+        reject(new Error(result?.info || status || 'ROUTE_SEARCH_FAILED'));
+        return;
+      }
+
+      const route = result.routes[0];
+      const path = [];
+      route.steps?.forEach((step) => {
+        step.path?.forEach((point) => path.push(amapPointToArray(point)));
+      });
+      resolve({
+        path: path.length ? path : [[start.lng, start.lat], [end.lng, end.lat]],
+        distance: Number(route.distance || 0),
+        duration: Number(route.time || 0)
+      });
+    };
+
+    if (app.routeMode === 'driving') {
+      service.search([start.lng, start.lat], [end.lng, end.lat], {}, callback);
+    } else {
+      service.search([start.lng, start.lat], [end.lng, end.lat], callback);
+    }
+  });
+}
+
+async function calculateAmapRoute(places, token) {
+  try {
+    await loadAmapRoutePlugins();
+    const Service = app.routeMode === 'driving' ? AMap.Driving : AMap.Walking;
+    const service = new Service({ hideMarkers: true });
+    const segments = [];
+
+    for (let i = 1; i < places.length; i += 1) {
+      segments.push(await searchRouteSegment(service, places[i - 1], places[i]));
+      if (token !== app.routeSearchToken) return;
+    }
+
+    if (token !== app.routeSearchToken) return;
+    removeRouteLine();
+    const lines = segments
+      .map((segment) => drawRoutePolyline(segment.path))
+      .filter(Boolean);
+    app.routeLine = lines;
+
+    app.routeMetric = {
+      key: routeKey(places),
+      distanceMeters: segments.reduce((sum, item) => sum + item.distance, 0),
+      durationSeconds: segments.reduce((sum, item) => sum + item.duration, 0),
+      status: 'ready'
+    };
+  } catch (error) {
+    console.warn(error);
+    app.routeMetric = {
+      key: routeKey(places),
+      status: 'fallback'
+    };
+  }
+
+  if (token === app.routeSearchToken) renderRouteSummary();
+}
+
 function renderRouteLine() {
   if (!app.map) return;
-  if (app.routeLine) app.map.remove(app.routeLine);
-  const points = routePlaces().map((place) => [place.lng, place.lat]);
-  app.routeLine = points.length > 1
-    ? new AMap.Polyline({
-        path: points,
-        strokeColor: '#0f766e',
-        strokeWeight: 5,
-        strokeOpacity: 0.78,
-        lineJoin: 'round',
-        lineCap: 'round'
-      })
-    : null;
-  if (app.routeLine) app.map.add(app.routeLine);
+  app.routeSearchToken += 1;
+  const token = app.routeSearchToken;
+  const places = routePlaces();
+  const points = places.map((place) => [place.lng, place.lat]);
+  removeRouteLine();
+
+  if (points.length < 2) {
+    app.routeMetric = null;
+    renderRouteSummary();
+    return;
+  }
+
+  app.routeMetric = { key: routeKey(places), status: 'loading' };
+  renderRouteSummary();
+  app.routeLine = drawRoutePolyline(points, true);
+  calculateAmapRoute(places, token);
 }
 
 function fitMap() {
@@ -1170,7 +1289,11 @@ function fitMap() {
     return;
   }
   const overlays = Array.from(app.markers.values());
-  if (app.routeLine) overlays.push(app.routeLine);
+  if (Array.isArray(app.routeLine)) {
+    overlays.push(...app.routeLine);
+  } else if (app.routeLine) {
+    overlays.push(app.routeLine);
+  }
   if (overlays.length) app.map.setFitView(overlays, false, [80, 80, 80, 80], 15);
 }
 
@@ -1342,10 +1465,33 @@ function renderStats() {
   $('routeCount').textContent = app.state.routePlaceIds.length;
 }
 
+function renderRouteSummary() {
+  const places = routePlaces();
+  const metric = app.routeMetric?.key === routeKey(places) ? app.routeMetric : null;
+  const modeName = app.routeMode === 'driving' ? '驾车' : '走路';
+
+  if (places.length < 2) {
+    const stats = routeStats(places);
+    $('routeSummary').textContent = `${places.length} 个地点 · ${modeName} · ${stats.distance} · ${stats.duration}`;
+    return;
+  }
+
+  if (metric?.status === 'ready') {
+    const formatted = formatRouteMetric(metric.distanceMeters, metric.durationSeconds);
+    $('routeSummary').textContent = `${places.length} 个地点 · ${modeName} · ${formatted.distance} · ${formatted.duration}`;
+    return;
+  }
+
+  const stats = routeStats(places);
+  const suffix = metric?.status === 'loading' ? '计算中' : '直线预估';
+  $('routeSummary').textContent = `${places.length} 个地点 · ${modeName}${suffix} · ${stats.distance} · ${stats.duration}`;
+}
+
 function renderRoute() {
   const places = routePlaces();
-  const stats = routeStats(places);
-  $('routeSummary').textContent = `${places.length} 个地点 · ${stats.distance} · ${stats.duration}`;
+  renderRouteSummary();
+  $('routeModeWalking').classList.toggle('active', app.routeMode === 'walking');
+  $('routeModeDriving').classList.toggle('active', app.routeMode === 'driving');
   const root = $('routeList');
   root.innerHTML = '';
   if (!places.length) {
@@ -1436,6 +1582,10 @@ function renderDetail() {
   $('detailComments').innerHTML = comments.length
     ? comments.map((comment) => `<div class="comment"><strong>${memberById(comment.userId).name}</strong><span>${comment.content}</span></div>`).join('')
     : '<div class="empty">还没有讨论</div>';
+  const routeButton = $('detailAddRoute');
+  const alreadyInRoute = app.state.routePlaceIds.includes(place.id);
+  routeButton.textContent = alreadyInRoute ? '已加入路线' : '加入路线';
+  routeButton.disabled = alreadyInRoute;
   $('commentInput').value = '';
 }
 
@@ -1450,10 +1600,27 @@ function resetPlaceForm() {
   $('placeNoteInput').value = '';
 }
 
+function setRouteMode(mode) {
+  if (!['walking', 'driving'].includes(mode) || app.routeMode === mode) return;
+  app.routeMode = mode;
+  app.routeMetric = null;
+  renderRoute();
+  renderRouteLine();
+}
+
 function openNavigation(place) {
-  const target = place || routePlaces()[0];
+  const route = routePlaces();
+  const target = place || route[route.length - 1] || route[0];
   if (!target) return;
-  const url = `https://uri.amap.com/marker?position=${target.lng},${target.lat}&name=${encodeURIComponent(target.name)}`;
+  const mode = app.routeMode === 'driving' ? 'car' : 'walk';
+  const start = !place && route.length > 1 ? route[0] : null;
+  const params = new URLSearchParams({
+    to: `${target.lng},${target.lat},${target.name}`,
+    mode,
+    policy: '1'
+  });
+  if (start) params.set('from', `${start.lng},${start.lat},${start.name}`);
+  const url = `https://uri.amap.com/navigation?${params.toString()}`;
   window.open(url, '_blank', 'noopener');
 }
 
@@ -1524,6 +1691,8 @@ function bindEvents() {
     renderRoute();
     renderRouteLine();
   });
+  $('routeModeWalking').addEventListener('click', () => setRouteMode('walking'));
+  $('routeModeDriving').addEventListener('click', () => setRouteMode('driving'));
   $('openNavigation').addEventListener('click', () => openNavigation());
   $('detailWant').addEventListener('click', toggleWant);
   $('detailAddRoute').addEventListener('click', async () => {
