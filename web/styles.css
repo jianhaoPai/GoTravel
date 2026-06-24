@@ -757,12 +757,20 @@ textarea:focus {
 }
 
 .sort-buttons button {
-  width: 34px;
+  min-width: 34px;
   height: 30px;
   border-radius: 8px;
   color: #334155;
   background: #f1f5f9;
   font-weight: 950;
+}
+
+.sort-buttons [data-action="remove"] {
+  width: auto;
+  padding: 0 8px;
+  color: #991b1b;
+  background: #fee2e2;
+  font-size: 12px;
 }
 
 .empty {
