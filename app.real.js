@@ -1532,19 +1532,21 @@ async function initMap() {
     viewMode: '2D'
   });
 
-  app.map.on('click', (event) => {
-    if (!requireAuth() || !requireTrip()) return;
-    resetPlaceForm();
-    setPlaceDraft({
-      name: '地图选点',
-      address: '点击地图添加的位置',
-      lat: event.lnglat.getLat(),
-      lng: event.lnglat.getLng()
-    });
-    $('placeSearchResults').innerHTML = '<div class="empty compact">已选中地图上的位置，可以直接保存</div>';
-    $('placeModalTitle').textContent = '添加地图选点';
-    $('placeModal').showModal();
+  app.map.on('dblclick', (event) => addMapPickedPlace(event.lnglat));
+}
+
+function addMapPickedPlace(lnglat) {
+  if (!requireAuth() || !requireTrip()) return;
+  resetPlaceForm();
+  setPlaceDraft({
+    name: '地图选点',
+    address: '双击地图添加的位置',
+    lat: lnglat.getLat(),
+    lng: lnglat.getLng()
   });
+  $('placeSearchResults').innerHTML = '<div class="empty compact">已选中地图上的位置，可以直接保存</div>';
+  $('placeModalTitle').textContent = '添加地图选点';
+  $('placeModal').showModal();
 }
 
 function markerContent(place) {
@@ -1578,6 +1580,7 @@ function openRouteInfo(place) {
 
   const content = `
     <div class="route-map-info">
+      <button class="route-map-info-close" type="button" data-action="close" aria-label="关闭地点提示">×</button>
       <strong>${routeIndex + 1}. ${escapeHtml(place.name)}</strong>
       <span>${escapeHtml(place.address || '暂无详细地址')}</span>
       <div class="route-map-info-actions">
@@ -1597,6 +1600,9 @@ function openRouteInfo(place) {
   window.setTimeout(() => {
     const info = document.querySelector('.route-map-info');
     if (!info) return;
+    info.querySelector('[data-action="close"]')?.addEventListener('click', () => {
+      app.routeInfoWindow?.close();
+    });
     info.querySelector('[data-action="detail"]')?.addEventListener('click', () => openDetail(place.id));
     info.querySelector('[data-action="navigate"]')?.addEventListener('click', () => openNavigation(place));
   }, 0);
