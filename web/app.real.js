@@ -91,13 +91,19 @@ const app = {
   routeMode: 'walking',
   routeMetric: null,
   routeSearchToken: 0,
+  routeSegmentCache: new Map(),
+  pendingRouteTimer: null,
+  deferRouteLine: false,
   draggedRouteIndex: null,
+  isDraggingRoute: false,
   mobilePanel: 'places',
   mobileDrawerOpen: false,
   selectedPlaceId: null,
   placeDraft: null,
   placeSearch: null,
   autoComplete: null,
+  searchCache: new Map(),
+  searchTokens: new Map(),
   mapQuickFilter: null,
   mapExplorePlaces: [],
   mapExploreToken: 0,
@@ -137,6 +143,30 @@ function showToast(message) {
   toastTimer = window.setTimeout(() => {
     toast.hidden = true;
   }, 1800);
+}
+
+function setButtonLoading(button, loading, label = '处理中...') {
+  if (!button) return;
+  if (loading) {
+    button.dataset.originalText = button.textContent;
+    button.textContent = label;
+    button.disabled = true;
+    button.classList.add('loading');
+    return;
+  }
+  button.textContent = button.dataset.originalText || button.textContent;
+  button.disabled = false;
+  button.classList.remove('loading');
+  delete button.dataset.originalText;
+}
+
+function scheduleRouteLine(delay = 220) {
+  app.deferRouteLine = true;
+  window.clearTimeout(app.pendingRouteTimer);
+  app.pendingRouteTimer = window.setTimeout(() => {
+    app.deferRouteLine = false;
+    if (!app.isDraggingRoute) renderRouteLine();
+  }, delay);
 }
 
 function isVisible(id) {
@@ -646,11 +676,12 @@ async function persistRoute(options = {}) {
   }, { onConflict: 'trip_id' });
 
   if (error) {
-    if (!silent) alert(error.message);
-    return;
+    if (!silent) showToast(`路线保存失败：${error.message}`);
+    return false;
   }
 
   if (reload) await loadState();
+  return true;
 }
 
 function setPlaceDraft(place) {
@@ -671,10 +702,20 @@ function renderPlaceSearchResults(results = []) {
   results.forEach((place) => {
     const button = document.createElement('button');
     const active = app.placeDraft && app.placeDraft.lat === place.lat && app.placeDraft.lng === place.lng;
-    button.className = `place-result ${active ? 'active' : ''}`;
+    const status = placeSearchStatus(place);
+    button.className = `place-result ${active ? 'active' : ''} ${status.existing ? 'existing' : ''}`;
     button.type = 'button';
-    button.innerHTML = `<strong>${escapeHtml(place.name)}</strong><span>${escapeHtml(place.address || '暂无详细地址')}</span>`;
+    button.innerHTML = `
+      <strong>${escapeHtml(place.name)}</strong>
+      <span>${escapeHtml(place.address || '暂无详细地址')}</span>
+      ${status.label ? `<em>${escapeHtml(status.label)}</em>` : ''}
+    `;
     button.addEventListener('click', () => {
+      if (status.existing) {
+        if (routeIndexForPlace(status.existing.id) >= 0) openRouteInfo(status.existing);
+        else openDetail(status.existing.id);
+        return;
+      }
       setPlaceDraft(place);
       renderPlaceSearchResults(results);
       if (app.map) app.map.setZoomAndCenter(16, [place.lng, place.lat]);
@@ -753,14 +794,17 @@ function createPlaceSearch(options = {}) {
 async function searchPlace() {
   if (!requireTrip()) return;
   const keyword = $('placeSearchInput').value.trim();
+  const button = $('searchPlace');
   if (!keyword) {
     alert('请输入要搜索的地点名称。');
     return;
   }
 
+  setButtonLoading(button, true, '搜索中');
   const result = await runPlaceSearch(keyword, $('placeSearchResults'));
+  setButtonLoading(button, false);
   if (!result.ok) {
-    $('placeSearchResults').innerHTML = `<div class="empty compact">搜索失败：${escapeHtml(amapSearchErrorMessage(result.message))}</div>`;
+    renderSearchError('placeSearchResults', result.message, searchPlace);
     return;
   }
 
@@ -772,6 +816,16 @@ async function runPlaceSearch(keyword, loadingRoot, options = {}) {
   if (!searchers) return { ok: false, places: [], message: '高德地点搜索服务不可用' };
   const { placeSearch, autoComplete } = searchers;
   const searcher = options.types || options.radius ? createPlaceSearch(options) : placeSearch;
+  const cacheKey = JSON.stringify({
+    keyword,
+    city: app.state.trip?.city || '全国',
+    types: options.types || '',
+    radius: options.radius || ''
+  });
+
+  if (app.searchCache.has(cacheKey)) {
+    return app.searchCache.get(cacheKey);
+  }
 
   loadingRoot.innerHTML = '<div class="empty compact">正在搜索...</div>';
   const city = app.state.trip?.city || '全国';
@@ -799,13 +853,17 @@ async function runPlaceSearch(keyword, loadingRoot, options = {}) {
 
   let result = await searchOnce(city);
   if (result.ok && result.places.length) {
-    return { ok: true, places: result.places, message: '' };
+    const done = { ok: true, places: result.places, message: '' };
+    app.searchCache.set(cacheKey, done);
+    return done;
   }
 
   if (city !== '全国') {
     result = await searchOnce('全国');
     if (result.ok) {
-      return { ok: true, places: result.places, message: '' };
+      const done = { ok: true, places: result.places, message: '' };
+      app.searchCache.set(cacheKey, done);
+      return done;
     }
   }
 
@@ -846,13 +904,17 @@ async function runPlaceSearch(keyword, loadingRoot, options = {}) {
 
   let autoResult = await autoOnce(city);
   if (autoResult.ok && autoResult.places.length) {
-    return { ok: true, places: autoResult.places, message: '' };
+    const done = { ok: true, places: autoResult.places, message: '' };
+    app.searchCache.set(cacheKey, done);
+    return done;
   }
 
   if (city !== '全国') {
     autoResult = await autoOnce('全国');
     if (autoResult.ok && autoResult.places.length) {
-      return { ok: true, places: autoResult.places, message: '' };
+      const done = { ok: true, places: autoResult.places, message: '' };
+      app.searchCache.set(cacheKey, done);
+      return done;
     }
   }
 
@@ -875,19 +937,26 @@ function renderMapSearchResults(results = []) {
   }
 
   results.forEach((place) => {
+    const status = placeSearchStatus(place);
     const item = document.createElement('article');
-    item.className = 'place-result result-with-action';
+    item.className = `place-result result-with-action ${status.existing ? 'existing' : ''}`;
     item.innerHTML = `
       <button class="result-main" type="button">
         <strong>${escapeHtml(place.name)}</strong>
         <span>${escapeHtml(place.address || '暂无详细地址')}</span>
+        ${status.label ? `<em>${escapeHtml(status.label)}</em>` : ''}
       </button>
-      <button class="small-primary result-add" type="button">添加</button>
+      <button class="small-primary result-add" type="button">${escapeHtml(status.action)}</button>
     `;
     item.querySelector('.result-main').addEventListener('click', () => {
       if (app.map) app.map.setZoomAndCenter(16, [place.lng, place.lat]);
     });
     item.querySelector('.result-add').addEventListener('click', async () => {
+      if (status.existing) {
+        if (routeIndexForPlace(status.existing.id) >= 0) openRouteInfo(status.existing);
+        else openDetail(status.existing.id);
+        return;
+      }
       const saved = await persistPlace({
         ...place,
         category: place.category || app.mapQuickFilter?.category || '景点',
@@ -1021,6 +1090,18 @@ function clearSearchResults(rootId, message, hide = false) {
   root.innerHTML = message ? `<div class="empty compact">${escapeHtml(message)}</div>` : '';
 }
 
+function renderSearchError(rootId, message, retry) {
+  const root = $(rootId);
+  root.hidden = false;
+  root.innerHTML = `
+    <div class="empty compact search-error">
+      <span>搜索失败：${escapeHtml(amapSearchErrorMessage(message))}</span>
+      <button type="button">重试</button>
+    </div>
+  `;
+  root.querySelector('button')?.addEventListener('click', retry);
+}
+
 function bindLivePlaceSuggest(inputId, rootId, renderResults, options = {}) {
   let timer = null;
   $(inputId).addEventListener('input', () => {
@@ -1040,11 +1121,17 @@ function bindLivePlaceSuggest(inputId, rootId, renderResults, options = {}) {
     timer = window.setTimeout(async () => {
       if (!requireTrip()) return;
       $(rootId).hidden = false;
+      const token = Date.now();
+      app.searchTokens.set(rootId, token);
       const result = options.searchRunner
         ? await options.searchRunner($(rootId))
         : await runPlaceSearch(keyword, $(rootId));
+      if (app.searchTokens.get(rootId) !== token) return;
       if (!result.ok) {
-        $(rootId).innerHTML = `<div class="empty compact">搜索失败：${escapeHtml(amapSearchErrorMessage(result.message))}</div>`;
+        renderSearchError(rootId, result.message, () => {
+          if (inputId === 'mapSearchInput') searchMapPlace();
+          else searchPlace();
+        });
         return;
       }
       renderResults(result.places);
@@ -1054,6 +1141,7 @@ function bindLivePlaceSuggest(inputId, rootId, renderResults, options = {}) {
 
 async function searchMapPlace() {
   if (!requireAuth() || !requireTrip()) return;
+  const button = $('mapSearchButton');
   if (!mapSearchKeyword()) {
     $('mapSearchResults').hidden = false;
     $('mapSearchResults').innerHTML = '<div class="empty compact">请输入地点关键词</div>';
@@ -1061,9 +1149,11 @@ async function searchMapPlace() {
   }
 
   $('mapSearchResults').hidden = false;
+  setButtonLoading(button, true, '搜索中');
   const result = await runMapSearch($('mapSearchResults'));
+  setButtonLoading(button, false);
   if (!result.ok) {
-    $('mapSearchResults').innerHTML = `<div class="empty compact">搜索失败：${escapeHtml(amapSearchErrorMessage(result.message))}</div>`;
+    renderSearchError('mapSearchResults', result.message, searchMapPlace);
     return;
   }
   renderMapSearchResults(result.places);
@@ -1072,6 +1162,13 @@ async function searchMapPlace() {
 async function persistPlace(place) {
   if (!place.name || Number.isNaN(place.lat) || Number.isNaN(place.lng)) {
     alert('请先搜索并选择一个地点。');
+    return false;
+  }
+
+  const existing = existingPlaceForSearch(place);
+  if (existing) {
+    showToast('这个地点已经收藏过');
+    openDetail(existing.id);
     return false;
   }
 
@@ -1097,7 +1194,7 @@ async function persistPlace(place) {
       .single();
 
     if (error) {
-      alert(error.message);
+      showToast(`地点保存失败：${error.message}`);
       return false;
     }
 
@@ -1105,7 +1202,7 @@ async function persistPlace(place) {
       place_id: created.id,
       user_id: currentUserId()
     });
-    if (wantError) alert(wantError.message);
+    if (wantError) showToast(`想去保存失败：${wantError.message}`);
 
     app.state.places.push({
       id: created.id,
@@ -1123,9 +1220,11 @@ async function persistPlace(place) {
   renderPlaces();
   renderStats();
   renderMap();
+  renderRoute();
   if (app.map) {
     app.map.setZoomAndCenter(15, [place.lng, place.lat]);
   }
+  showToast('已添加到大家想去');
   return true;
 }
 
@@ -1153,6 +1252,7 @@ async function deletePlace(placeId) {
   renderStats();
   renderRoute();
   renderMap();
+  showToast('地点已删除');
 
   if (app.mode !== 'supabase') {
     saveLocal();
@@ -1176,7 +1276,7 @@ async function deletePlace(placeId) {
       renderStats();
       renderRoute();
       renderMap();
-      alert(error.message);
+      showToast(`删除失败：${error.message}`);
       return;
     }
 
@@ -1186,6 +1286,7 @@ async function deletePlace(placeId) {
 
 async function savePlace() {
   if (!requireAuth() || !requireTrip()) return;
+  const button = $('savePlace');
   const draft = app.placeDraft;
 
   const place = {
@@ -1197,7 +1298,9 @@ async function savePlace() {
     note: $('placeNoteInput').value.trim()
   };
 
+  setButtonLoading(button, true, '保存中');
   const saved = await persistPlace(place);
+  setButtonLoading(button, false);
   if (saved) $('placeModal').close();
 }
 
@@ -1207,25 +1310,30 @@ async function toggleWant() {
   const placeId = app.selectedPlaceId;
   if (!placeId) return;
   const existing = app.state.wants.find((want) => want.placeId === placeId && want.userId === currentUserId());
+  if (existing) return;
+
+  app.state.wants.push({ placeId, userId: currentUserId() });
+  showToast('已标记想去');
+  renderPlaces();
+  renderStats();
+  renderDetail();
 
   if (app.mode !== 'supabase') {
-    if (!existing) app.state.wants.push({ placeId, userId: currentUserId() });
     saveLocal();
-  } else if (!existing) {
+  } else {
     const { error } = await app.supabase.from('place_wants').insert({
       place_id: placeId,
       user_id: currentUserId()
     });
     if (error) {
-      alert(error.message);
+      app.state.wants = app.state.wants.filter((want) => !(want.placeId === placeId && want.userId === currentUserId()));
+      renderPlaces();
+      renderStats();
+      renderDetail();
+      showToast(`想去保存失败：${error.message}`);
       return;
     }
-    app.state.wants.push({ placeId, userId: currentUserId() });
   }
-
-  renderPlaces();
-  renderStats();
-  renderDetail();
 }
 
 async function addComment() {
@@ -1233,6 +1341,8 @@ async function addComment() {
 
   const content = $('commentInput').value.trim();
   if (!content || !app.selectedPlaceId) return;
+  const button = $('addComment');
+  setButtonLoading(button, true, '发送中');
 
   if (app.mode !== 'supabase') {
     app.state.comments.push({
@@ -1251,7 +1361,8 @@ async function addComment() {
     }).select('id')
       .single();
     if (error) {
-      alert(error.message);
+      showToast(`评论发送失败：${error.message}`);
+      setButtonLoading(button, false);
       return;
     }
     app.state.comments.push({
@@ -1265,6 +1376,8 @@ async function addComment() {
   $('commentInput').value = '';
   renderPlaces();
   renderDetail();
+  showToast('评论已发送');
+  setButtonLoading(button, false);
 }
 
 async function updatePlaceCategory() {
@@ -1277,7 +1390,9 @@ async function updatePlaceCategory() {
   const category = $('detailCategoryInput').value;
   if (!CATEGORIES.includes(category) || category === '全部' || category === place.category) return;
 
+  const button = $('saveDetailCategory');
   const previousCategory = place.category;
+  setButtonLoading(button, true, '保存中');
   place.category = category;
   renderPlaces();
   renderRoute();
@@ -1286,6 +1401,7 @@ async function updatePlaceCategory() {
   if (app.mode !== 'supabase') {
     saveLocal();
     showToast('分类已保存');
+    setButtonLoading(button, false);
     return;
   }
 
@@ -1305,10 +1421,12 @@ async function updatePlaceCategory() {
     renderPlaces();
     renderRoute();
     renderDetail();
-    alert(error.message);
+    showToast(`分类保存失败：${error.message}`);
+    setButtonLoading(button, false);
     return;
   }
   showToast('分类已保存');
+  setButtonLoading(button, false);
 }
 
 function distanceKm(a, b) {
@@ -1336,6 +1454,46 @@ function formatRouteMetric(distanceMeters, durationSeconds) {
   const minutes = Math.max(1, Math.round(durationSeconds / 60));
   const duration = minutes < 60 ? `${minutes} 分钟` : `${Math.floor(minutes / 60)} 小时 ${minutes % 60} 分钟`;
   return { distance, duration };
+}
+
+function routeIndexForPlace(placeId) {
+  return app.state.routePlaceIds.indexOf(placeId);
+}
+
+function existingPlaceForSearch(place) {
+  if (!place) return null;
+  return app.state.places.find((item) => {
+    const sameCoordinates = Math.abs(Number(item.lat) - Number(place.lat)) < 0.00008
+      && Math.abs(Number(item.lng) - Number(place.lng)) < 0.00008;
+    const sameName = item.name === place.name;
+    const sameAddress = item.address && place.address && item.address === place.address;
+    return sameCoordinates || (sameName && sameAddress);
+  }) || null;
+}
+
+function placeSearchStatus(place) {
+  const existing = existingPlaceForSearch(place);
+  if (!existing) return { existing: null, label: '', action: '添加' };
+  const routeIndex = routeIndexForPlace(existing.id);
+  if (routeIndex >= 0) return { existing, label: `已收藏 · 路线第 ${routeIndex + 1} 站`, action: '查看路线' };
+  return { existing, label: '已收藏', action: '查看' };
+}
+
+function cssEscape(value) {
+  return window.CSS?.escape ? CSS.escape(String(value)) : String(value).replace(/["\\]/g, '\\$&');
+}
+
+function scrollLinkedCards(placeId) {
+  window.setTimeout(() => {
+    document.querySelector(`[data-place-card-id="${cssEscape(placeId)}"]`)?.scrollIntoView({
+      block: 'nearest',
+      behavior: 'smooth'
+    });
+    document.querySelector(`[data-route-place-id="${cssEscape(placeId)}"]`)?.scrollIntoView({
+      block: 'nearest',
+      behavior: 'smooth'
+    });
+  }, 0);
 }
 
 function filteredPlaces() {
@@ -1411,14 +1569,12 @@ function openRouteInfo(place) {
   // 只更新高亮状态，不做全量 renderMap，避免重建所有 marker 和重新请求路线
   const prevId = app.highlightedRoutePlaceId;
   app.highlightedRoutePlaceId = place.id;
+  app.selectedPlaceId = place.id;
 
-  if (prevId && prevId !== place.id && app.markers.has(prevId)) {
-    const prevPlace = app.state.places.find((p) => p.id === prevId);
-    if (prevPlace) app.markers.get(prevId).setContent(markerContent(prevPlace));
-  }
-  if (app.markers.has(place.id)) {
-    app.markers.get(place.id).setContent(markerContent(place));
-  }
+  updateLinkedMarkerHighlight(prevId, place.id);
+  renderRoute();
+  renderPlaces();
+  scrollLinkedCards(place.id);
 
   const content = `
     <div class="route-map-info">
@@ -1446,6 +1602,17 @@ function openRouteInfo(place) {
   }, 0);
 }
 
+function updateLinkedMarkerHighlight(prevId, nextId) {
+  if (prevId && prevId !== nextId && app.markers.has(prevId)) {
+    const prevPlace = app.state.places.find((place) => place.id === prevId);
+    if (prevPlace) app.markers.get(prevId).setContent(markerContent(prevPlace));
+  }
+  if (nextId && app.markers.has(nextId)) {
+    const nextPlace = app.state.places.find((place) => place.id === nextId);
+    if (nextPlace) app.markers.get(nextId).setContent(markerContent(nextPlace));
+  }
+}
+
 function renderMap() {
   if (!app.map) return;
   app.markers.forEach((marker) => app.map.remove(marker));
@@ -1468,7 +1635,7 @@ function renderMap() {
     app.map.add(marker);
     app.markers.set(place.id, marker);
   });
-  renderRouteLine();
+  if (!app.deferRouteLine) renderRouteLine();
 }
 
 function removeRouteLine() {
@@ -1498,6 +1665,10 @@ function drawRoutePolyline(paths, dashed = false) {
 
 function routeKey(places = routePlaces()) {
   return `${app.routeMode}:${places.map((place) => place.id).join('|')}`;
+}
+
+function routeSegmentCacheKey(start, end) {
+  return `${app.routeMode}:${start.id || start.name}:${start.lng},${start.lat}->${end.id || end.name}:${end.lng},${end.lat}`;
 }
 
 function amapPointToArray(point) {
@@ -1579,10 +1750,22 @@ async function calculateAmapRoute(places, token) {
     const segments = [];
 
     for (let i = 1; i < places.length; i += 1) {
+      const cacheKey = routeSegmentCacheKey(places[i - 1], places[i]);
+      const cached = app.routeSegmentCache.get(cacheKey);
+      if (cached) {
+        segments.push(cached);
+        if (token !== app.routeSearchToken) return;
+        continue;
+      }
+
       try {
-        segments.push(await searchRouteSegmentWithRetry(service, places[i - 1], places[i]));
+        const segment = await searchRouteSegmentWithRetry(service, places[i - 1], places[i]);
+        app.routeSegmentCache.set(cacheKey, segment);
+        segments.push(segment);
       } catch (segmentError) {
-        segments.push(estimatedRouteSegment(places[i - 1], places[i], segmentError));
+        const estimated = estimatedRouteSegment(places[i - 1], places[i], segmentError);
+        app.routeSegmentCache.set(cacheKey, estimated);
+        segments.push(estimated);
       }
       if (token !== app.routeSearchToken) return;
     }
@@ -1620,6 +1803,7 @@ async function calculateAmapRoute(places, token) {
 
 function renderRouteLine() {
   if (!app.map) return;
+  if (app.isDraggingRoute) return;
   app.routeSearchToken += 1;
   const token = app.routeSearchToken;
   const places = routePlaces();
@@ -1635,6 +1819,33 @@ function renderRouteLine() {
   app.routeMetric = { key: routeKey(places), status: 'loading' };
   renderRouteSummary();
   app.routeLine = drawRoutePolyline(points, true);
+
+  const cachedSegments = [];
+  for (let i = 1; i < places.length; i += 1) {
+    const cached = app.routeSegmentCache.get(routeSegmentCacheKey(places[i - 1], places[i]));
+    if (!cached) break;
+    cachedSegments.push(cached);
+  }
+  if (cachedSegments.length === places.length - 1) {
+    removeRouteLine();
+    app.routeLine = cachedSegments.map((segment) => drawRoutePolyline(segment.path)).filter(Boolean);
+    app.routeMetric = {
+      key: routeKey(places),
+      distanceMeters: cachedSegments.reduce((sum, item) => sum + item.distance, 0),
+      durationSeconds: cachedSegments.reduce((sum, item) => sum + item.duration, 0),
+      segments: cachedSegments.map((segment) => ({
+        distanceMeters: segment.distance,
+        durationSeconds: segment.duration,
+        estimated: Boolean(segment.estimated),
+        attempts: segment.attempts || 1,
+        error: segment.error || ''
+      })),
+      status: cachedSegments.some((segment) => segment.estimated) ? 'partial' : 'ready'
+    };
+    renderRoute();
+    return;
+  }
+
   calculateAmapRoute(places, token);
 }
 
@@ -1696,6 +1907,12 @@ function renderMobilePanels() {
   $('roomView').classList.toggle('mobile-drawer-closed', !app.mobileDrawerOpen);
   $('mobilePlacesTab').classList.toggle('active', app.mobilePanel === 'places');
   $('mobileRouteTab').classList.toggle('active', app.mobilePanel === 'route');
+  const route = routePlaces();
+  const metric = app.routeMetric?.key === routeKey(route) ? app.routeMetric : null;
+  const summaryTime = metric?.durationSeconds
+    ? ` · 约 ${formatRouteMetric(metric.distanceMeters || 0, metric.durationSeconds).duration}`
+    : '';
+  $('mobileDrawerSummary').textContent = `${app.state.places.length} 个收藏点 · 路线 ${route.length} 站${summaryTime}`;
 }
 
 function renderAuth() {
@@ -1791,10 +2008,17 @@ function renderPlaces() {
   places.forEach((place) => {
     const member = memberById(place.createdBy);
     const card = document.createElement('article');
-    card.className = 'place-card';
+    const isLinked = app.highlightedRoutePlaceId === place.id || app.selectedPlaceId === place.id;
+    card.className = `place-card ${isLinked ? 'active' : ''}`;
+    card.dataset.placeCardId = place.id;
     const canDelete = canManagePlace(place);
+    const routeIndex = routeIndexForPlace(place.id);
+    const inRoute = routeIndex >= 0;
     card.innerHTML = `
       <div class="place-card-actions">
+        <button class="place-route-action ${inRoute ? 'in-route' : ''}" type="button">
+          ${inRoute ? `路线第 ${routeIndex + 1} 站` : '加入路线'}
+        </button>
         <button class="place-open" type="button">
           查看详情
         </button>
@@ -1818,6 +2042,13 @@ function renderPlaces() {
     `;
     card.querySelector('.place-main').addEventListener('click', () => openDetail(place.id));
     card.querySelector('.place-open').addEventListener('click', () => openDetail(place.id));
+    card.querySelector('.place-route-action').addEventListener('click', async () => {
+      if (inRoute) {
+        openRouteInfo(place);
+        return;
+      }
+      await addPlaceToRoute(place.id);
+    });
     const deleteButton = card.querySelector('.place-delete');
     if (deleteButton) deleteButton.addEventListener('click', () => deletePlace(place.id));
     root.appendChild(card);
@@ -1828,6 +2059,7 @@ function renderStats() {
   $('placeCount').textContent = app.state.places.length;
   $('memberCount').textContent = app.state.members.length;
   $('routeCount').textContent = app.state.routePlaceIds.length;
+  renderMobilePanels();
 }
 
 function renderRouteSummary() {
@@ -1838,6 +2070,7 @@ function renderRouteSummary() {
   if (places.length < 2) {
     const stats = routeStats(places);
     $('routeSummary').textContent = `${places.length} 个地点 · ${modeName} · ${stats.distance} · ${stats.duration}`;
+    renderMobilePanels();
     return;
   }
 
@@ -1846,17 +2079,20 @@ function renderRouteSummary() {
     const estimatedCount = metric.segments?.filter((segment) => segment.estimated).length || 0;
     const suffix = estimatedCount ? ` · ${estimatedCount} 段直线估算` : '';
     $('routeSummary').textContent = `${places.length} 个地点 · ${modeName} · ${formatted.distance} · ${formatted.duration}${suffix}`;
+    renderMobilePanels();
     return;
   }
 
   const stats = routeStats(places);
   if (metric?.status === 'fallback') {
     $('routeSummary').textContent = `${places.length} 个地点 · ${modeName}路线失败：${metric.error} · 显示直线预估 ${stats.distance}`;
+    renderMobilePanels();
     return;
   }
 
   const suffix = metric?.status === 'loading' ? '计算中' : '直线预估';
   $('routeSummary').textContent = `${places.length} 个地点 · ${modeName}${suffix} · ${stats.distance} · ${stats.duration}`;
+  renderMobilePanels();
 }
 
 function routeSegmentText(places, index) {
@@ -1891,8 +2127,9 @@ function renderRoute() {
   }
   places.forEach((place, index) => {
     const item = document.createElement('article');
-    item.className = 'route-item';
+    item.className = `route-item ${app.highlightedRoutePlaceId === place.id ? 'active' : ''}`;
     item.dataset.index = String(index);
+    item.dataset.routePlaceId = place.id;
     const segmentText = routeSegmentText(places, index);
     item.innerHTML = `
       <div class="route-title-row">
@@ -1903,11 +2140,11 @@ function renderRoute() {
           <span class="route-address">${escapeHtml(place.address)}</span>
         </button>
         <div class="route-tools">
-          <div class="sort-buttons">
+          <div class="sort-buttons" aria-label="调整顺序">
             <button type="button" data-action="up">↑</button>
             <button type="button" data-action="down">↓</button>
           </div>
-          <button class="route-remove" type="button" data-action="remove">移除</button>
+          <button class="route-remove" type="button" data-action="remove" title="从路线移除">×</button>
         </div>
       </div>
       ${segmentText ? `<div class="route-segment">${escapeHtml(segmentText)}</div>` : ''}
@@ -1915,17 +2152,21 @@ function renderRoute() {
     const handle = item.querySelector('.drag-handle');
     handle.addEventListener('dragstart', (event) => {
       app.draggedRouteIndex = index;
+      app.isDraggingRoute = true;
       event.dataTransfer.effectAllowed = 'move';
       event.dataTransfer.setData('text/plain', String(index));
       item.classList.add('dragging');
     });
     handle.addEventListener('dragend', () => {
       app.draggedRouteIndex = null;
+      app.isDraggingRoute = false;
       root.querySelectorAll('.route-item').forEach((node) => node.classList.remove('dragging', 'drag-over'));
+      scheduleRouteLine(80);
     });
     handle.addEventListener('pointerdown', (event) => {
       if (event.pointerType === 'mouse') return;
       app.draggedRouteIndex = index;
+      app.isDraggingRoute = true;
       item.classList.add('dragging');
       handle.setPointerCapture(event.pointerId);
     });
@@ -1941,12 +2182,15 @@ function renderRoute() {
       const from = app.draggedRouteIndex;
       const to = target ? Number(target.dataset.index) : from;
       app.draggedRouteIndex = null;
+      app.isDraggingRoute = false;
       root.querySelectorAll('.route-item').forEach((node) => node.classList.remove('dragging', 'drag-over'));
       moveRouteItem(from, to);
     });
     handle.addEventListener('pointercancel', () => {
       app.draggedRouteIndex = null;
+      app.isDraggingRoute = false;
       root.querySelectorAll('.route-item').forEach((node) => node.classList.remove('dragging', 'drag-over'));
+      scheduleRouteLine(80);
     });
     item.addEventListener('dragenter', (event) => {
       event.preventDefault();
@@ -1962,6 +2206,7 @@ function renderRoute() {
       root.querySelectorAll('.route-item').forEach((node) => node.classList.remove('dragging', 'drag-over'));
       const from = app.draggedRouteIndex ?? Number(event.dataTransfer.getData('text/plain'));
       app.draggedRouteIndex = null;
+      app.isDraggingRoute = false;
       moveRouteItem(from, index);
     });
     item.querySelector('[data-action="focus-map"]').addEventListener('click', () => openRouteInfo(place));
@@ -1991,23 +2236,48 @@ async function moveRouteItem(from, to) {
   const ids = app.state.routePlaceIds;
   const [moved] = ids.splice(from, 1);
   ids.splice(to, 0, moved);
-  await persistRoute();
+  showToast('路线顺序已更新');
+  scheduleRouteLine(app.isDraggingRoute ? 80 : 260);
   renderStats();
   renderRoute();
   renderMap();
+  await persistRoute({ silent: true });
 }
 
 async function removeRouteItem(index) {
   if (index < 0 || index >= app.state.routePlaceIds.length) return;
+  const removedId = app.state.routePlaceIds[index];
   app.state.routePlaceIds.splice(index, 1);
-  await persistRoute();
+  if (app.highlightedRoutePlaceId === removedId) app.highlightedRoutePlaceId = null;
+  showToast('已从路线移除');
+  scheduleRouteLine(220);
   renderStats();
   renderRoute();
   renderMap();
+  await persistRoute({ silent: true });
+}
+
+async function addPlaceToRoute(placeId) {
+  if (!placeId || app.state.routePlaceIds.includes(placeId)) return;
+  app.state.routePlaceIds.push(placeId);
+  showToast('已加入路线');
+  scheduleRouteLine(220);
+  renderStats();
+  renderPlaces();
+  renderRoute();
+  renderMap();
+  renderDetail();
+  await persistRoute({ silent: true });
 }
 
 function openDetail(placeId) {
+  const prevId = app.highlightedRoutePlaceId;
   app.selectedPlaceId = placeId;
+  app.highlightedRoutePlaceId = routeIndexForPlace(placeId) >= 0 ? placeId : null;
+  updateLinkedMarkerHighlight(prevId, app.highlightedRoutePlaceId);
+  renderPlaces();
+  renderRoute();
+  scrollLinkedCards(placeId);
   renderDetail();
   if (!$('detailModal').open) $('detailModal').showModal();
 }
@@ -2051,7 +2321,8 @@ function setRouteMode(mode) {
   app.routeMode = mode;
   app.routeMetric = null;
   renderRoute();
-  renderRouteLine();
+  showToast(`已切换为${mode === 'driving' ? '驾车' : '走路'}路线`);
+  scheduleRouteLine(160);
 }
 
 function openNavigation(place) {
@@ -2075,7 +2346,7 @@ async function copyInvite() {
   const text = `邀请码：${app.state.trip.inviteCode}\n链接：${window.location.origin}${window.location.pathname}?trip=${app.state.trip.id}`;
   try {
     await navigator.clipboard.writeText(text);
-    alert('邀请码和链接已复制。');
+    showToast('邀请码和链接已复制');
   } catch (_error) {
     prompt('复制邀请码和链接给朋友', text);
   }
@@ -2138,30 +2409,32 @@ function bindEvents() {
   $('selectAllPlaces').addEventListener('click', async () => {
     if (!requireTrip()) return;
     app.state.routePlaceIds = app.state.places.map((place) => place.id);
-    await persistRoute();
+    showToast('已全选路线点');
+    scheduleRouteLine(220);
     renderStats();
+    renderPlaces();
     renderRoute();
     renderMap();
+    await persistRoute({ silent: true });
   });
   $('clearRoute').addEventListener('click', async () => {
     app.state.routePlaceIds = [];
-    await persistRoute();
+    app.highlightedRoutePlaceId = null;
+    showToast('路线已清空');
+    removeRouteLine();
+    scheduleRouteLine(120);
     renderStats();
+    renderPlaces();
     renderRoute();
     renderMap();
+    await persistRoute({ silent: true });
   });
   $('routeModeWalking').addEventListener('click', () => setRouteMode('walking'));
   $('routeModeDriving').addEventListener('click', () => setRouteMode('driving'));
   $('openNavigation').addEventListener('click', () => openNavigation());
   $('detailWant').addEventListener('click', toggleWant);
   $('detailAddRoute').addEventListener('click', async () => {
-    if (!app.selectedPlaceId || app.state.routePlaceIds.includes(app.selectedPlaceId)) return;
-    app.state.routePlaceIds.push(app.selectedPlaceId);
-    await persistRoute();
-    renderStats();
-    renderRoute();
-    renderMap();
-    renderDetail();
+    await addPlaceToRoute(app.selectedPlaceId);
   });
   $('detailNavigate').addEventListener('click', () => {
     const place = app.state.places.find((item) => item.id === app.selectedPlaceId);
