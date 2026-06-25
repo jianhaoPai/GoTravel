@@ -99,6 +99,20 @@ const app = {
 
 const $ = (id) => document.getElementById(id);
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  })[char]);
+}
+
+function safeColor(value, fallback = '#64748B') {
+  return /^#[0-9a-fA-F]{6}$/.test(String(value || '')) ? value : fallback;
+}
+
 function isVisible(id) {
   const element = $(id);
   return Boolean(element && !element.closest('[hidden]') && element.getClientRects().length);
@@ -629,7 +643,7 @@ function renderPlaceSearchResults(results = []) {
     const active = app.placeDraft && app.placeDraft.lat === place.lat && app.placeDraft.lng === place.lng;
     button.className = `place-result ${active ? 'active' : ''}`;
     button.type = 'button';
-    button.innerHTML = `<strong>${place.name}</strong><span>${place.address || '暂无详细地址'}</span>`;
+    button.innerHTML = `<strong>${escapeHtml(place.name)}</strong><span>${escapeHtml(place.address || '暂无详细地址')}</span>`;
     button.addEventListener('click', () => {
       setPlaceDraft(place);
       renderPlaceSearchResults(results);
@@ -689,7 +703,7 @@ async function searchPlace() {
 
   const result = await runPlaceSearch(keyword, $('placeSearchResults'));
   if (!result.ok) {
-    $('placeSearchResults').innerHTML = `<div class="empty compact">搜索失败：${amapSearchErrorMessage(result.message)}</div>`;
+    $('placeSearchResults').innerHTML = `<div class="empty compact">搜索失败：${escapeHtml(amapSearchErrorMessage(result.message))}</div>`;
     return;
   }
 
@@ -793,8 +807,8 @@ function renderMapSearchResults(results = []) {
     item.className = 'place-result result-with-action';
     item.innerHTML = `
       <button class="result-main" type="button">
-        <strong>${place.name}</strong>
-        <span>${place.address || '暂无详细地址'}</span>
+        <strong>${escapeHtml(place.name)}</strong>
+        <span>${escapeHtml(place.address || '暂无详细地址')}</span>
       </button>
       <button class="small-primary result-add" type="button">添加</button>
     `;
@@ -820,7 +834,7 @@ function renderMapSearchResults(results = []) {
 function clearSearchResults(rootId, message, hide = false) {
   const root = $(rootId);
   root.hidden = hide;
-  root.innerHTML = message ? `<div class="empty compact">${message}</div>` : '';
+  root.innerHTML = message ? `<div class="empty compact">${escapeHtml(message)}</div>` : '';
 }
 
 function bindLivePlaceSuggest(inputId, rootId, renderResults, options = {}) {
@@ -844,7 +858,7 @@ function bindLivePlaceSuggest(inputId, rootId, renderResults, options = {}) {
       $(rootId).hidden = false;
       const result = await runPlaceSearch(keyword, $(rootId));
       if (!result.ok) {
-        $(rootId).innerHTML = `<div class="empty compact">搜索失败：${amapSearchErrorMessage(result.message)}</div>`;
+        $(rootId).innerHTML = `<div class="empty compact">搜索失败：${escapeHtml(amapSearchErrorMessage(result.message))}</div>`;
         return;
       }
       renderResults(result.places);
@@ -864,7 +878,7 @@ async function searchMapPlace() {
   $('mapSearchResults').hidden = false;
   const result = await runPlaceSearch(keyword, $('mapSearchResults'));
   if (!result.ok) {
-    $('mapSearchResults').innerHTML = `<div class="empty compact">搜索失败：${amapSearchErrorMessage(result.message)}</div>`;
+    $('mapSearchResults').innerHTML = `<div class="empty compact">搜索失败：${escapeHtml(amapSearchErrorMessage(result.message))}</div>`;
     return;
   }
   renderMapSearchResults(result.places);
@@ -1151,7 +1165,7 @@ function markerContent(place) {
   const routeIndex = app.state.routePlaceIds.indexOf(place.id);
   const label = routeIndex >= 0 ? String(routeIndex + 1) : member.name.slice(0, 1);
   const className = routeIndex >= 0 ? 'marker-pin route-marker' : 'marker-pin';
-  return `<div class="${className}" style="background:${member.color}"><span>${label}</span></div>`;
+  return `<div class="${className}" style="background:${safeColor(member.color)}"><span>${escapeHtml(label)}</span></div>`;
 }
 
 function renderMap() {
@@ -1411,8 +1425,8 @@ function renderLobby() {
     button.className = 'joined-trip';
     button.type = 'button';
     button.innerHTML = `
-      <strong>${trip.name}</strong>
-      <span>${trip.city || '旅行'} · ${trip.dateRange || '待定'}</span>
+      <strong>${escapeHtml(trip.name)}</strong>
+      <span>${escapeHtml(trip.city || '旅行')} · ${escapeHtml(trip.dateRange || '待定')}</span>
     `;
     button.addEventListener('click', () => openTrip(trip.id));
     root.appendChild(button);
@@ -1434,7 +1448,7 @@ function renderFilters() {
     const button = document.createElement('button');
     button.className = `chip ${app.filters.member === member.userId ? 'active' : ''}`;
     button.type = 'button';
-    button.innerHTML = `<span class="dot" style="background:${member.color}"></span>${member.name}`;
+    button.innerHTML = `<span class="dot" style="background:${safeColor(member.color)}"></span>${escapeHtml(member.name)}`;
     button.addEventListener('click', () => {
       app.filters.member = member.userId;
       render();
@@ -1480,17 +1494,17 @@ function renderPlaces() {
       <button class="place-main" type="button">
         <div class="place-title-row">
           <div>
-            <span class="place-name">${place.name}</span>
-            <span class="place-address">${place.address}</span>
+            <span class="place-name">${escapeHtml(place.name)}</span>
+            <span class="place-address">${escapeHtml(place.address)}</span>
           </div>
-          <span class="owner-pill" style="background:${member.color}">${member.name}</span>
+          <span class="owner-pill" style="background:${safeColor(member.color)}">${escapeHtml(member.name)}</span>
         </div>
         <div class="meta-row">
-          <span>${place.category}</span>
+          <span>${escapeHtml(place.category)}</span>
           <span>${wantsForPlace(place.id)} 人想去</span>
           <span>${commentsForPlace(place.id).length} 条讨论</span>
         </div>
-        <p class="place-note">${place.note || '暂无备注'}</p>
+        <p class="place-note">${escapeHtml(place.note || '暂无备注')}</p>
       </button>
     `;
     card.querySelector('.place-main').addEventListener('click', () => openDetail(place.id));
@@ -1576,8 +1590,8 @@ function renderRoute() {
         <button class="drag-handle" type="button" draggable="true" aria-label="拖动调整顺序">⋮⋮</button>
         <span class="step">${index + 1}</span>
         <div class="route-main">
-          <span class="route-name">${place.name}</span>
-          <span class="route-address">${place.address}</span>
+          <span class="route-name">${escapeHtml(place.name)}</span>
+          <span class="route-address">${escapeHtml(place.address)}</span>
         </div>
         <div class="route-tools">
           <div class="sort-buttons">
@@ -1587,7 +1601,7 @@ function renderRoute() {
           <button class="route-remove" type="button" data-action="remove">移除</button>
         </div>
       </div>
-      ${segmentText ? `<div class="route-segment">${segmentText}</div>` : ''}
+      ${segmentText ? `<div class="route-segment">${escapeHtml(segmentText)}</div>` : ''}
     `;
     const handle = item.querySelector('.drag-handle');
     handle.addEventListener('dragstart', (event) => {
@@ -1695,10 +1709,10 @@ function renderDetail() {
   $('detailName').textContent = place.name;
   $('detailAddress').textContent = place.address;
   $('detailNote').textContent = place.note || '暂无备注';
-  $('detailMeta').innerHTML = `<span>${place.category}</span><span>${member.name}收藏</span><span>${wantsForPlace(place.id)} 人想去</span>`;
+  $('detailMeta').innerHTML = `<span>${escapeHtml(place.category)}</span><span>${escapeHtml(member.name)}收藏</span><span>${wantsForPlace(place.id)} 人想去</span>`;
   const comments = commentsForPlace(place.id);
   $('detailComments').innerHTML = comments.length
-    ? comments.map((comment) => `<div class="comment"><strong>${memberById(comment.userId).name}</strong><span>${comment.content}</span></div>`).join('')
+    ? comments.map((comment) => `<div class="comment"><strong>${escapeHtml(memberById(comment.userId).name)}</strong><span>${escapeHtml(comment.content)}</span></div>`).join('')
     : '<div class="empty">还没有讨论</div>';
   const routeButton = $('detailAddRoute');
   const alreadyInRoute = app.state.routePlaceIds.includes(place.id);
