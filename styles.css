@@ -621,6 +621,14 @@ textarea:focus {
   font-weight: 850;
 }
 
+.detail-edit-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: end;
+  gap: 10px;
+  margin-top: 14px;
+}
+
 .map-workspace {
   position: relative;
   min-height: 100vh;
@@ -1132,6 +1140,10 @@ textarea:focus {
 
   .search-row {
     display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .detail-edit-row {
     grid-template-columns: 1fr;
   }
 
