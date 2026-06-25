@@ -82,6 +82,7 @@ const app = {
   routeSearchToken: 0,
   draggedRouteIndex: null,
   mobilePanel: 'places',
+  mobileDrawerOpen: false,
   selectedPlaceId: null,
   placeDraft: null,
   placeSearch: null,
@@ -1367,6 +1368,8 @@ function renderView() {
 function renderMobilePanels() {
   $('roomView').classList.toggle('mobile-route-active', app.mobilePanel === 'route');
   $('roomView').classList.toggle('mobile-places-active', app.mobilePanel === 'places');
+  $('roomView').classList.toggle('mobile-drawer-open', app.mobileDrawerOpen);
+  $('roomView').classList.toggle('mobile-drawer-closed', !app.mobileDrawerOpen);
   $('mobilePlacesTab').classList.toggle('active', app.mobilePanel === 'places');
   $('mobileRouteTab').classList.toggle('active', app.mobilePanel === 'route');
 }
@@ -1759,11 +1762,13 @@ async function openTrip(tripId) {
 
 function bindEvents() {
   $('mobilePlacesTab').addEventListener('click', () => {
+    app.mobileDrawerOpen = app.mobilePanel === 'places' ? !app.mobileDrawerOpen : true;
     app.mobilePanel = 'places';
     renderMobilePanels();
     window.setTimeout(() => app.map?.resize?.(), 0);
   });
   $('mobileRouteTab').addEventListener('click', () => {
+    app.mobileDrawerOpen = app.mobilePanel === 'route' ? !app.mobileDrawerOpen : true;
     app.mobilePanel = 'route';
     renderMobilePanels();
     window.setTimeout(() => app.map?.resize?.(), 0);

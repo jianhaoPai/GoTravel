@@ -982,15 +982,21 @@ textarea:focus {
     z-index: 850;
     left: 12px;
     right: 12px;
-    bottom: min(44dvh, 390px);
+    bottom: 0;
     display: grid;
     grid-template-columns: repeat(2, 1fr);
     gap: 8px;
     padding: 6px;
     border: 1px solid rgba(217, 225, 234, 0.94);
+    border-bottom: 0;
     border-radius: 8px 8px 0 0;
     background: rgba(255, 255, 255, 0.96);
     box-shadow: 0 -10px 30px rgba(15, 23, 42, 0.12);
+    transition: bottom 180ms ease;
+  }
+
+  .mobile-drawer-open .mobile-drawer-tabs {
+    bottom: min(44dvh, 390px);
   }
 
   .mobile-drawer-tabs button {
@@ -1022,6 +1028,13 @@ textarea:focus {
     box-shadow: 0 -18px 48px rgba(15, 23, 42, 0.16);
     overflow: auto;
     -webkit-overflow-scrolling: touch;
+    transform: translateY(calc(100% + 48px));
+    transition: transform 180ms ease;
+  }
+
+  .mobile-drawer-open .sidebar,
+  .mobile-drawer-open .route-panel {
+    transform: translateY(0);
   }
 
   .mobile-places-active .route-panel,
