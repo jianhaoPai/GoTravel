@@ -85,6 +85,8 @@ const app = {
   map: null,
   markers: new Map(),
   exploreMarkers: [],
+  routeInfoWindow: null,
+  highlightedRoutePlaceId: null,
   routeLine: null,
   routeMode: 'walking',
   routeMetric: null,
@@ -1391,8 +1393,48 @@ function markerContent(place) {
   const member = memberById(place.createdBy);
   const routeIndex = app.state.routePlaceIds.indexOf(place.id);
   const label = routeIndex >= 0 ? String(routeIndex + 1) : member.name.slice(0, 1);
-  const className = routeIndex >= 0 ? 'marker-pin route-marker' : 'marker-pin';
+  const highlighted = app.highlightedRoutePlaceId === place.id;
+  const className = routeIndex >= 0
+    ? `marker-pin route-marker ${highlighted ? 'route-marker-active' : ''}`
+    : 'marker-pin';
   return `<div class="${className}" style="background:${safeColor(member.color)}"><span>${escapeHtml(label)}</span></div>`;
+}
+
+function openRouteInfo(place) {
+  if (!app.map || !window.AMap) return;
+  const routeIndex = app.state.routePlaceIds.indexOf(place.id);
+  if (routeIndex < 0) {
+    openDetail(place.id);
+    return;
+  }
+
+  app.highlightedRoutePlaceId = place.id;
+  renderMap();
+
+  const content = `
+    <div class="route-map-info">
+      <strong>${routeIndex + 1}. ${escapeHtml(place.name)}</strong>
+      <span>${escapeHtml(place.address || '暂无详细地址')}</span>
+      <div class="route-map-info-actions">
+        <button type="button" data-action="detail">详情</button>
+        <button type="button" data-action="navigate">导航</button>
+      </div>
+    </div>
+  `;
+  app.routeInfoWindow = app.routeInfoWindow || new AMap.InfoWindow({
+    isCustom: true,
+    offset: new AMap.Pixel(0, -38)
+  });
+  app.routeInfoWindow.setContent(content);
+  app.routeInfoWindow.open(app.map, [place.lng, place.lat]);
+  app.map.setZoomAndCenter(Math.max(app.map.getZoom?.() || 15, 15), [place.lng, place.lat]);
+
+  window.setTimeout(() => {
+    const info = document.querySelector('.route-map-info');
+    if (!info) return;
+    info.querySelector('[data-action="detail"]')?.addEventListener('click', () => openDetail(place.id));
+    info.querySelector('[data-action="navigate"]')?.addEventListener('click', () => openNavigation(place));
+  }, 0);
 }
 
 function renderMap() {
@@ -1407,7 +1449,13 @@ function renderMap() {
       offset: new AMap.Pixel(-17, -32),
       anchor: 'bottom-center'
     });
-    marker.on('click', () => openDetail(place.id));
+    marker.on('click', () => {
+      if (app.state.routePlaceIds.includes(place.id)) {
+        openRouteInfo(place);
+      } else {
+        openDetail(place.id);
+      }
+    });
     app.map.add(marker);
     app.markers.set(place.id, marker);
   });
@@ -1841,10 +1889,10 @@ function renderRoute() {
       <div class="route-title-row">
         <button class="drag-handle" type="button" draggable="true" aria-label="拖动调整顺序">⋮⋮</button>
         <span class="step">${index + 1}</span>
-        <div class="route-main">
+        <button class="route-main" type="button" data-action="focus-map" aria-label="在地图查看 ${escapeHtml(place.name)}">
           <span class="route-name">${escapeHtml(place.name)}</span>
           <span class="route-address">${escapeHtml(place.address)}</span>
-        </div>
+        </button>
         <div class="route-tools">
           <div class="sort-buttons">
             <button type="button" data-action="up">↑</button>
@@ -1907,6 +1955,7 @@ function renderRoute() {
       app.draggedRouteIndex = null;
       moveRouteItem(from, index);
     });
+    item.querySelector('[data-action="focus-map"]').addEventListener('click', () => openRouteInfo(place));
     item.querySelector('[data-action="up"]').addEventListener('click', () => moveRouteItem(index, index - 1));
     item.querySelector('[data-action="down"]').addEventListener('click', () => moveRouteItem(index, index + 1));
     item.querySelector('[data-action="remove"]').addEventListener('click', () => removeRouteItem(index));
