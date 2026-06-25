@@ -38,6 +38,28 @@
           <button class="small-ghost" id="lobbySignOut" type="button">退出登录</button>
         </div>
         <div class="lobby-grid">
+          <section class="lobby-panel">
+            <div class="section-head">
+              <h2>已加入房间</h2>
+            </div>
+            <div class="joined-trip-list" id="joinedTripList">
+              <div class="empty compact">还没有加入过房间</div>
+            </div>
+          </section>
+          <section class="lobby-panel">
+            <div class="section-head">
+              <h2>加入房间</h2>
+              <button class="small-primary" id="lobbyJoinTrip" type="button">加入</button>
+            </div>
+            <label>
+              邀请码
+              <input id="lobbyInviteCodeInput" placeholder="输入 6 位邀请码" />
+            </label>
+            <label>
+              你的昵称
+              <input id="lobbyDisplayNameInput" placeholder="例如 阿辰" />
+            </label>
+          </section>
           <section class="lobby-panel" id="lobbyCreatePanel">
             <div class="section-head">
               <h2>创建房间</h2>
@@ -62,28 +84,6 @@
               <input id="lobbyTripEndDateInput" type="date" />
             </label>
             <p class="entry-hint compact" id="createTripPermissionHint" hidden>当前配置不允许普通用户创建房间，请输入邀请码加入已有房间。</p>
-          </section>
-          <section class="lobby-panel">
-            <div class="section-head">
-              <h2>已加入房间</h2>
-            </div>
-            <div class="joined-trip-list" id="joinedTripList">
-              <div class="empty compact">还没有加入过房间</div>
-            </div>
-          </section>
-          <section class="lobby-panel">
-            <div class="section-head">
-              <h2>加入房间</h2>
-              <button class="small-primary" id="lobbyJoinTrip" type="button">加入</button>
-            </div>
-            <label>
-              邀请码
-              <input id="lobbyInviteCodeInput" placeholder="输入 6 位邀请码" />
-            </label>
-            <label>
-              你的昵称
-              <input id="lobbyDisplayNameInput" placeholder="例如 阿辰" />
-            </label>
           </section>
         </div>
       </div>
