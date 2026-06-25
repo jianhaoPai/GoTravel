@@ -689,14 +689,13 @@ textarea:focus {
   right: 18px;
   top: 18px;
   display: grid;
-  gap: 14px;
-  padding: 14px;
+  gap: 8px;
+  padding: 8px;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.94);
   box-shadow: var(--shadow);
 }
 
-.map-overlay-main,
 .map-search-row {
   display: flex;
   justify-content: space-between;
@@ -706,28 +705,49 @@ textarea:focus {
 
 .map-search-row {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px;
 }
 
-.map-quick-filters {
+.map-search-row input {
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.map-search-row .small-primary,
+#fitMap {
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.map-explore-bar {
+  position: absolute;
+  z-index: 520;
+  left: 18px;
+  right: 18px;
+  top: 74px;
   display: flex;
   gap: 8px;
   overflow-x: auto;
-  padding-bottom: 2px;
+  padding: 2px 0 8px;
   scrollbar-width: none;
+  pointer-events: auto;
 }
 
-.map-quick-filters::-webkit-scrollbar {
+.map-explore-bar::-webkit-scrollbar {
   display: none;
 }
 
 .quick-filter {
-  min-height: 34px;
-  padding: 0 12px;
+  min-height: 32px;
+  padding: 0 11px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: #fff;
   color: var(--text);
+  font-size: 13px;
   font-weight: 700;
   white-space: nowrap;
   box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
@@ -785,6 +805,12 @@ textarea:focus {
 .marker-pin.route-marker span {
   min-width: 18px;
   text-align: center;
+}
+
+.marker-pin.explore-marker {
+  border-color: #FEF3C7;
+  border-radius: 50%;
+  box-shadow: 0 8px 20px rgba(217, 119, 6, 0.32);
 }
 
 .route-actions {
@@ -1151,37 +1177,32 @@ textarea:focus {
     left: 10px;
     right: 10px;
     top: 10px;
-    gap: 10px;
-    padding: 10px;
-  }
-
-  .map-overlay-main {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 10px;
-  }
-
-  .map-overlay strong {
-    font-size: 15px;
-  }
-
-  .map-overlay span {
-    display: none;
+    gap: 6px;
+    padding: 7px;
   }
 
   .map-search-row {
     display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 8px;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 6px;
   }
 
   .map-search-row .small-primary,
   #fitMap {
-    min-height: 38px;
-    padding: 0 12px;
+    min-height: 34px;
+    padding: 0 9px;
+    font-size: 12px;
   }
 
-  .map-quick-filters {
+  .map-search-row input {
+    min-height: 34px;
+    font-size: 12px;
+  }
+
+  .map-explore-bar {
+    left: 10px;
+    right: 10px;
+    top: 62px;
     gap: 6px;
   }
 

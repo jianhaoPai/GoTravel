@@ -84,6 +84,7 @@ const app = {
   filters: { member: 'all', category: '全部' },
   map: null,
   markers: new Map(),
+  exploreMarkers: [],
   routeLine: null,
   routeMode: 'walking',
   routeMetric: null,
@@ -96,6 +97,8 @@ const app = {
   placeSearch: null,
   autoComplete: null,
   mapQuickFilter: null,
+  mapExplorePlaces: [],
+  mapExploreToken: 0,
   joinedTrips: [],
   supabase: null,
   session: null,
@@ -804,6 +807,14 @@ async function runPlaceSearch(keyword, loadingRoot, options = {}) {
     }
   }
 
+  if (options.types || options.radius) {
+    return {
+      ok: result.ok,
+      places: [],
+      message: result.info || result.status || '没有返回结果'
+    };
+  }
+
   const autoOnce = (targetCity) => new Promise((resolve) => {
     if (autoComplete.setCity) autoComplete.setCity(targetCity);
     autoComplete.search(keyword, (status, autoResult) => {
@@ -890,6 +901,58 @@ function renderMapSearchResults(results = []) {
   });
 }
 
+function clearExploreMarkers() {
+  if (!app.map) return;
+  app.exploreMarkers.forEach((marker) => app.map.remove(marker));
+  app.exploreMarkers = [];
+  app.mapExplorePlaces = [];
+}
+
+function exploreMarkerContent(place, index) {
+  const color = app.mapQuickFilter?.category === '餐厅'
+    ? '#D97706'
+    : app.mapQuickFilter?.category === '购物'
+      ? '#7C3AED'
+      : app.mapQuickFilter?.category === '街区'
+        ? '#2563EB'
+        : '#0F766E';
+  return `<div class="marker-pin explore-marker" style="background:${color}"><span>${index + 1}</span></div>`;
+}
+
+function openExplorePlace(place) {
+  if (!requireAuth() || !requireTrip()) return;
+  resetPlaceForm();
+  setPlaceDraft(place);
+  $('placeCategoryInput').value = place.category || app.mapQuickFilter?.category || '景点';
+  $('placeSearchResults').innerHTML = '<div class="empty compact">已选择地图上的推荐地点，可以补充备注后保存</div>';
+  $('placeModalTitle').textContent = '收藏推荐地点';
+  $('placeModal').showModal();
+}
+
+function renderExploreMarkers(places = []) {
+  if (!app.map) return;
+  clearExploreMarkers();
+  app.mapExplorePlaces = places;
+
+  places.forEach((place, index) => {
+    const marker = new AMap.Marker({
+      position: [place.lng, place.lat],
+      title: place.name,
+      content: exploreMarkerContent(place, index),
+      offset: new AMap.Pixel(-17, -32),
+      anchor: 'bottom-center',
+      zIndex: 90
+    });
+    marker.on('click', () => openExplorePlace(place));
+    app.map.add(marker);
+    app.exploreMarkers.push(marker);
+  });
+
+  if (places.length > 0) {
+    app.map.setFitView(app.exploreMarkers, false, [80, 80, 80, 80], 16);
+  }
+}
+
 function mapSearchOptions() {
   return app.mapQuickFilter ? {
     types: app.mapQuickFilter.types,
@@ -930,15 +993,21 @@ function renderMapQuickFilters() {
     button.textContent = filter.label;
     button.addEventListener('click', async () => {
       app.mapQuickFilter = app.mapQuickFilter?.id === filter.id ? null : filter;
+      const token = ++app.mapExploreToken;
       renderMapQuickFilters();
+      clearSearchResults('mapSearchResults', '', true);
+      clearExploreMarkers();
+      if (!app.mapQuickFilter) return;
       if (!requireAuth() || !requireTrip()) return;
-      $('mapSearchResults').hidden = false;
+      showToast(`正在标记${filter.label}`);
       const result = await runMapSearch($('mapSearchResults'));
+      if (token !== app.mapExploreToken || app.mapQuickFilter?.id !== filter.id) return;
       if (!result.ok) {
-        $('mapSearchResults').innerHTML = `<div class="empty compact">搜索失败：${escapeHtml(amapSearchErrorMessage(result.message))}</div>`;
+        showToast(`搜索失败：${amapSearchErrorMessage(result.message)}`);
         return;
       }
-      renderMapSearchResults(result.places);
+      renderExploreMarkers(result.places);
+      showToast(`已在地图标记 ${result.places.length} 个地点`);
     });
     root.appendChild(button);
   });
@@ -1622,7 +1691,6 @@ function renderTrip() {
   $('tripName').textContent = trip?.name || '新的旅行';
   $('tripCity').textContent = trip?.city || '旅行';
   $('tripDate').textContent = trip?.dateRange || '创建房间或输入邀请码加入';
-  $('overlayTitle').textContent = trip ? `${trip.city}共享收藏地图` : '共享收藏地图';
 }
 
 function renderFilters() {
