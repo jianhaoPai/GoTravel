@@ -1012,6 +1012,14 @@ textarea:focus {
     background: var(--brand);
   }
 
+  .mobile-drawer-tabs button.active::after {
+    content: " ↑";
+  }
+
+  .mobile-drawer-open .mobile-drawer-tabs button.active::after {
+    content: " ↓";
+  }
+
   .sidebar,
   .route-panel {
     position: fixed;
