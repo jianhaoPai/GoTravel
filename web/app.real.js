@@ -261,6 +261,10 @@ function commentsForPlace(placeId) {
   return app.state.comments.filter((comment) => comment.placeId === placeId);
 }
 
+function canManagePlace(place) {
+  return app.mode === 'demo' || app.isAdmin || place.createdBy === currentUserId();
+}
+
 function requireTrip() {
   if (app.state.trip) return true;
   alert('请先创建房间，或输入朋友发来的邀请码加入。');
@@ -1082,6 +1086,47 @@ async function addComment() {
   renderDetail();
 }
 
+async function updatePlaceCategory() {
+  if (!requireAuth()) return;
+
+  const placeId = app.selectedPlaceId;
+  const place = app.state.places.find((item) => item.id === placeId);
+  if (!place || !canManagePlace(place)) return;
+
+  const category = $('detailCategoryInput').value;
+  if (!CATEGORIES.includes(category) || category === '全部' || category === place.category) return;
+
+  const previousCategory = place.category;
+  place.category = category;
+  renderPlaces();
+  renderRoute();
+  renderDetail();
+
+  if (app.mode !== 'supabase') {
+    saveLocal();
+    return;
+  }
+
+  let query = app.supabase
+    .from('places')
+    .update({
+      category,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', placeId);
+
+  if (!app.isAdmin) query = query.eq('created_by', currentUserId());
+
+  const { error } = await query;
+  if (error) {
+    place.category = previousCategory;
+    renderPlaces();
+    renderRoute();
+    renderDetail();
+    alert(error.message);
+  }
+}
+
 function distanceKm(a, b) {
   const radius = 6371;
   const dLat = ((b.lat - a.lat) * Math.PI) / 180;
@@ -1222,6 +1267,10 @@ function amapPointToArray(point) {
   return [point.lng, point.lat];
 }
 
+function wait(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 function searchRouteSegment(service, start, end) {
   return new Promise((resolve, reject) => {
     const callback = (status, result) => {
@@ -1250,7 +1299,27 @@ function searchRouteSegment(service, start, end) {
   });
 }
 
-function estimatedRouteSegment(start, end, error) {
+async function searchRouteSegmentWithRetry(service, start, end) {
+  const delays = [0, 400, 900];
+  let lastError = null;
+
+  for (let attempt = 0; attempt < delays.length; attempt += 1) {
+    if (delays[attempt]) await wait(delays[attempt]);
+    try {
+      const segment = await searchRouteSegment(service, start, end);
+      return {
+        ...segment,
+        attempts: attempt + 1
+      };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error('路线不可达');
+}
+
+function estimatedRouteSegment(start, end, error, attempts = 3) {
   const distanceMeters = distanceKm(start, end) * 1000;
   const speedKmh = app.routeMode === 'driving' ? 28 : 4.5;
   return {
@@ -1258,6 +1327,7 @@ function estimatedRouteSegment(start, end, error) {
     distance: distanceMeters,
     duration: Math.round((distanceMeters / 1000 / speedKmh) * 3600),
     estimated: true,
+    attempts,
     error: error?.message || '路线不可达'
   };
 }
@@ -1271,7 +1341,7 @@ async function calculateAmapRoute(places, token) {
 
     for (let i = 1; i < places.length; i += 1) {
       try {
-        segments.push(await searchRouteSegment(service, places[i - 1], places[i]));
+        segments.push(await searchRouteSegmentWithRetry(service, places[i - 1], places[i]));
       } catch (segmentError) {
         segments.push(estimatedRouteSegment(places[i - 1], places[i], segmentError));
       }
@@ -1293,6 +1363,7 @@ async function calculateAmapRoute(places, token) {
         distanceMeters: segment.distance,
         durationSeconds: segment.duration,
         estimated: Boolean(segment.estimated),
+        attempts: segment.attempts || 1,
         error: segment.error || ''
       })),
       status: segments.some((segment) => segment.estimated) ? 'partial' : 'ready'
@@ -1483,7 +1554,7 @@ function renderPlaces() {
     const member = memberById(place.createdBy);
     const card = document.createElement('article');
     card.className = 'place-card';
-    const canDelete = app.mode === 'demo' || app.isAdmin || place.createdBy === currentUserId();
+    const canDelete = canManagePlace(place);
     card.innerHTML = `
       <div class="place-card-actions">
         <button class="place-open" type="button">
@@ -1559,7 +1630,7 @@ function routeSegmentText(places, index) {
 
   if ((metric?.status === 'ready' || metric?.status === 'partial') && segment) {
     const formatted = formatRouteMetric(segment.distanceMeters, segment.durationSeconds);
-    if (segment.estimated) return `到下一站 · 直线约 ${formatted.distance} · ${segment.error}`;
+    if (segment.estimated) return `到下一站 · 直线约 ${formatted.distance} · 重试 ${segment.attempts || 3} 次后失败`;
     return `到下一站 · ${modeName} ${formatted.distance} · ${formatted.duration}`;
   }
 
@@ -1710,6 +1781,9 @@ function renderDetail() {
   $('detailAddress').textContent = place.address;
   $('detailNote').textContent = place.note || '暂无备注';
   $('detailMeta').innerHTML = `<span>${escapeHtml(place.category)}</span><span>${escapeHtml(member.name)}收藏</span><span>${wantsForPlace(place.id)} 人想去</span>`;
+  const canEditCategory = canManagePlace(place);
+  $('detailCategoryEditor').hidden = !canEditCategory;
+  $('detailCategoryInput').value = CATEGORIES.includes(place.category) && place.category !== '全部' ? place.category : '景点';
   const comments = commentsForPlace(place.id);
   $('detailComments').innerHTML = comments.length
     ? comments.map((comment) => `<div class="comment"><strong>${escapeHtml(memberById(comment.userId).name)}</strong><span>${escapeHtml(comment.content)}</span></div>`).join('')
@@ -1853,6 +1927,7 @@ function bindEvents() {
     openNavigation(place);
   });
   $('addComment').addEventListener('click', addComment);
+  $('saveDetailCategory').addEventListener('click', updatePlaceCategory);
 }
 
 async function boot() {

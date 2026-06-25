@@ -244,6 +244,18 @@
         <p class="detail-address" id="detailAddress"></p>
         <p class="detail-note" id="detailNote"></p>
         <div class="detail-meta" id="detailMeta"></div>
+        <div class="detail-edit-row" id="detailCategoryEditor" hidden>
+          <label>
+            分类
+            <select id="detailCategoryInput">
+              <option>景点</option>
+              <option>餐厅</option>
+              <option>街区</option>
+              <option>购物</option>
+            </select>
+          </label>
+          <button class="small-primary" id="saveDetailCategory" type="button">保存分类</button>
+        </div>
         <div class="route-actions">
           <button id="detailWant" type="button">我也想去</button>
           <button id="detailAddRoute" type="button">加入路线</button>
