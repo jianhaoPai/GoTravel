@@ -153,19 +153,13 @@
 
       <section class="map-workspace">
         <div id="map" class="map" aria-label="共享地图"></div>
+        <div class="map-explore-bar" id="mapQuickFilters" aria-label="快捷搜索筛选"></div>
         <div class="map-overlay">
-          <div class="map-overlay-main">
-            <div>
-              <strong id="overlayTitle">共享收藏地图</strong>
-              <span id="overlaySubtitle">搜索地点直接收藏，也可以点击地图快速选点</span>
-            </div>
-            <button class="small-primary" id="fitMap" type="button">适配视野</button>
-          </div>
           <div class="map-search-row">
             <input id="mapSearchInput" placeholder="输入时自动推荐，例如 柳州 龙潭公园" />
             <button class="small-primary" id="mapSearchButton" type="button">搜索</button>
+            <button class="small-primary" id="fitMap" type="button">适配视野</button>
           </div>
-          <div class="map-quick-filters" id="mapQuickFilters" aria-label="快捷搜索筛选"></div>
           <div class="map-search-results" id="mapSearchResults" hidden></div>
         </div>
       </section>
