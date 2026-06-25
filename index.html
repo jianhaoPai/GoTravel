@@ -7,6 +7,8 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
     <section class="entry-screen" id="loginView" hidden>
       <div class="entry-visual" aria-hidden="true"></div>
       <div class="entry-card">
@@ -163,6 +165,7 @@
             <input id="mapSearchInput" placeholder="输入时自动推荐，例如 柳州 龙潭公园" />
             <button class="small-primary" id="mapSearchButton" type="button">搜索</button>
           </div>
+          <div class="map-quick-filters" id="mapQuickFilters" aria-label="快捷搜索筛选"></div>
           <div class="map-search-results" id="mapSearchResults" hidden></div>
         </div>
       </section>

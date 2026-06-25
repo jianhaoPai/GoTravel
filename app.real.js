@@ -1,5 +1,13 @@
 const CATEGORIES = ['全部', '景点', '餐厅', '街区', '购物'];
 const COLORS = ['#0F766E', '#2563EB', '#D97706', '#7C3AED', '#BE123C', '#15803D'];
+const MAP_QUICK_FILTERS = [
+  { id: 'scenic', label: '景点', keyword: '景点', types: '110000|110100|110200', category: '景点' },
+  { id: 'food', label: '美食', keyword: '美食', types: '050000', category: '餐厅' },
+  { id: 'hotel', label: '酒店', keyword: '酒店', types: '100000', category: '景点' },
+  { id: 'shopping', label: '购物', keyword: '购物', types: '060000', category: '购物' },
+  { id: 'transport', label: '交通', keyword: '交通', types: '150000', category: '街区' },
+  { id: 'walk10', label: '步行10分钟内', keyword: '景点', types: '110000|110100|110200|050000|060000', category: '景点', radius: 800 }
+];
 
 const emptyState = {
   trip: null,
@@ -87,6 +95,7 @@ const app = {
   placeDraft: null,
   placeSearch: null,
   autoComplete: null,
+  mapQuickFilter: null,
   joinedTrips: [],
   supabase: null,
   session: null,
@@ -98,6 +107,7 @@ const app = {
 };
 
 const $ = (id) => document.getElementById(id);
+let toastTimer = null;
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (char) => ({
@@ -111,6 +121,17 @@ function escapeHtml(value) {
 
 function safeColor(value, fallback = '#64748B') {
   return /^#[0-9a-fA-F]{6}$/.test(String(value || '')) ? value : fallback;
+}
+
+function showToast(message) {
+  const toast = $('toast');
+  if (!toast) return;
+  window.clearTimeout(toastTimer);
+  toast.textContent = message;
+  toast.hidden = false;
+  toastTimer = window.setTimeout(() => {
+    toast.hidden = true;
+  }, 1800);
 }
 
 function isVisible(id) {
@@ -697,6 +718,33 @@ async function ensurePlaceSearch() {
   });
 }
 
+function mapCenterLngLat() {
+  if (app.map?.getCenter) {
+    const center = app.map.getCenter();
+    const lng = typeof center.getLng === 'function' ? center.getLng() : center.lng;
+    const lat = typeof center.getLat === 'function' ? center.getLat() : center.lat;
+    if (Number.isFinite(Number(lng)) && Number.isFinite(Number(lat))) return [Number(lng), Number(lat)];
+  }
+
+  const tripCenter = app.state.trip?.center;
+  if (Array.isArray(tripCenter) && tripCenter.length >= 2) {
+    return [Number(tripCenter[1]), Number(tripCenter[0])];
+  }
+
+  return [121.4737, 31.2304];
+}
+
+function createPlaceSearch(options = {}) {
+  return new AMap.PlaceSearch({
+    city: app.state.trip?.city || '全国',
+    citylimit: false,
+    extensions: 'all',
+    pageSize: 10,
+    pageIndex: 1,
+    type: options.types || ''
+  });
+}
+
 async function searchPlace() {
   if (!requireTrip()) return;
   const keyword = $('placeSearchInput').value.trim();
@@ -714,17 +762,18 @@ async function searchPlace() {
   renderPlaceSearchResults(result.places);
 }
 
-async function runPlaceSearch(keyword, loadingRoot) {
+async function runPlaceSearch(keyword, loadingRoot, options = {}) {
   const searchers = await ensurePlaceSearch();
   if (!searchers) return { ok: false, places: [], message: '高德地点搜索服务不可用' };
   const { placeSearch, autoComplete } = searchers;
+  const searcher = options.types || options.radius ? createPlaceSearch(options) : placeSearch;
 
   loadingRoot.innerHTML = '<div class="empty compact">正在搜索...</div>';
   const city = app.state.trip?.city || '全国';
 
   const searchOnce = (targetCity) => new Promise((resolve) => {
-    placeSearch.setCity(targetCity);
-    placeSearch.search(keyword, (status, result) => {
+    searcher.setCity(targetCity);
+    const callback = (status, result) => {
       const places = status === 'complete'
         ? (result.poiList?.pois || []).map(normalizePoi).filter(Boolean)
         : [];
@@ -734,7 +783,13 @@ async function runPlaceSearch(keyword, loadingRoot) {
         status,
         info: result?.info || result?.message || ''
       });
-    });
+    };
+
+    if (options.radius) {
+      searcher.searchNearBy(keyword, mapCenterLngLat(), options.radius, callback);
+    } else {
+      searcher.search(keyword, callback);
+    }
   });
 
   let result = await searchOnce(city);
@@ -822,7 +877,7 @@ function renderMapSearchResults(results = []) {
     item.querySelector('.result-add').addEventListener('click', async () => {
       const saved = await persistPlace({
         ...place,
-        category: '景点',
+        category: place.category || app.mapQuickFilter?.category || '景点',
         note: ''
       });
       if (saved) {
@@ -832,6 +887,60 @@ function renderMapSearchResults(results = []) {
       }
     });
     root.appendChild(item);
+  });
+}
+
+function mapSearchOptions() {
+  return app.mapQuickFilter ? {
+    types: app.mapQuickFilter.types,
+    radius: app.mapQuickFilter.radius
+  } : {};
+}
+
+function mapSearchKeyword() {
+  const keyword = $('mapSearchInput').value.trim();
+  return keyword || app.mapQuickFilter?.keyword || '';
+}
+
+async function runMapSearch(loadingRoot) {
+  const keyword = mapSearchKeyword();
+  if (!keyword) {
+    return { ok: false, places: [], message: '请输入地点关键词' };
+  }
+
+  const result = await runPlaceSearch(keyword, loadingRoot, mapSearchOptions());
+  if (!result.ok) return result;
+
+  const category = app.mapQuickFilter?.category;
+  return {
+    ...result,
+    places: result.places.map((place) => ({ ...place, category: category || place.category }))
+  };
+}
+
+function renderMapQuickFilters() {
+  const root = $('mapQuickFilters');
+  if (!root) return;
+  root.innerHTML = '';
+
+  MAP_QUICK_FILTERS.forEach((filter) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `quick-filter ${app.mapQuickFilter?.id === filter.id ? 'active' : ''}`;
+    button.textContent = filter.label;
+    button.addEventListener('click', async () => {
+      app.mapQuickFilter = app.mapQuickFilter?.id === filter.id ? null : filter;
+      renderMapQuickFilters();
+      if (!requireAuth() || !requireTrip()) return;
+      $('mapSearchResults').hidden = false;
+      const result = await runMapSearch($('mapSearchResults'));
+      if (!result.ok) {
+        $('mapSearchResults').innerHTML = `<div class="empty compact">搜索失败：${escapeHtml(amapSearchErrorMessage(result.message))}</div>`;
+        return;
+      }
+      renderMapSearchResults(result.places);
+    });
+    root.appendChild(button);
   });
 }
 
@@ -860,7 +969,9 @@ function bindLivePlaceSuggest(inputId, rootId, renderResults, options = {}) {
     timer = window.setTimeout(async () => {
       if (!requireTrip()) return;
       $(rootId).hidden = false;
-      const result = await runPlaceSearch(keyword, $(rootId));
+      const result = options.searchRunner
+        ? await options.searchRunner($(rootId))
+        : await runPlaceSearch(keyword, $(rootId));
       if (!result.ok) {
         $(rootId).innerHTML = `<div class="empty compact">搜索失败：${escapeHtml(amapSearchErrorMessage(result.message))}</div>`;
         return;
@@ -872,15 +983,14 @@ function bindLivePlaceSuggest(inputId, rootId, renderResults, options = {}) {
 
 async function searchMapPlace() {
   if (!requireAuth() || !requireTrip()) return;
-  const keyword = $('mapSearchInput').value.trim();
-  if (!keyword) {
+  if (!mapSearchKeyword()) {
     $('mapSearchResults').hidden = false;
     $('mapSearchResults').innerHTML = '<div class="empty compact">请输入地点关键词</div>';
     return;
   }
 
   $('mapSearchResults').hidden = false;
-  const result = await runPlaceSearch(keyword, $('mapSearchResults'));
+  const result = await runMapSearch($('mapSearchResults'));
   if (!result.ok) {
     $('mapSearchResults').innerHTML = `<div class="empty compact">搜索失败：${escapeHtml(amapSearchErrorMessage(result.message))}</div>`;
     return;
@@ -1104,6 +1214,7 @@ async function updatePlaceCategory() {
 
   if (app.mode !== 'supabase') {
     saveLocal();
+    showToast('分类已保存');
     return;
   }
 
@@ -1124,7 +1235,9 @@ async function updatePlaceCategory() {
     renderRoute();
     renderDetail();
     alert(error.message);
+    return;
   }
+  showToast('分类已保存');
 }
 
 function distanceKm(a, b) {
@@ -1744,6 +1857,7 @@ function render() {
   renderStats();
   renderRoute();
   renderMap();
+  renderMapQuickFilters();
 }
 
 async function moveRouteItem(from, to) {
@@ -1885,7 +1999,8 @@ function bindEvents() {
     searchMapPlace();
   });
   bindLivePlaceSuggest('mapSearchInput', 'mapSearchResults', renderMapSearchResults, {
-    hideWhenEmpty: true
+    hideWhenEmpty: true,
+    searchRunner: runMapSearch
   });
   $('openAddPlace').addEventListener('click', () => {
     if (!requireAuth() || !requireTrip()) return;
