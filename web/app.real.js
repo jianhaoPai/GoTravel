@@ -1408,8 +1408,17 @@ function openRouteInfo(place) {
     return;
   }
 
+  // 只更新高亮状态，不做全量 renderMap，避免重建所有 marker 和重新请求路线
+  const prevId = app.highlightedRoutePlaceId;
   app.highlightedRoutePlaceId = place.id;
-  renderMap();
+
+  if (prevId && prevId !== place.id && app.markers.has(prevId)) {
+    const prevPlace = app.state.places.find((p) => p.id === prevId);
+    if (prevPlace) app.markers.get(prevId).setContent(markerContent(prevPlace));
+  }
+  if (app.markers.has(place.id)) {
+    app.markers.get(place.id).setContent(markerContent(place));
+  }
 
   const content = `
     <div class="route-map-info">
